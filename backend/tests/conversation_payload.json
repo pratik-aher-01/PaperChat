@@ -1,0 +1,25 @@
+{
+  "platform": "chatgpt",
+  "title": "Renderer API Fixture",
+  "messages": [
+    {
+      "id": "u1",
+      "role": "user",
+      "plain_text": "Explain code and tables."
+    },
+    {
+      "id": "a1",
+      "role": "assistant",
+      "plain_text": "## Notes\n\nUse `inline_code`.\n\n```python\nprint(\"hello\")\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |"
+    }
+  ],
+  "metadata": {
+    "source_url": "https://chatgpt.com/c/example",
+    "final_url": "https://chatgpt.com/c/example",
+    "title": "Renderer API Fixture",
+    "raw_html": "",
+    "fetch_time_ms": 1,
+    "extra": {}
+  },
+  "raw_html": ""
+}
