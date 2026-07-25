@@ -9,6 +9,7 @@ from app.domain.conversation import Conversation
 from app.domain.message import Message
 from app.renderer.base import BaseRenderer
 from app.renderer.components import render_section, render_toc_prompt_item
+from app.renderer.qr_generator import generate_qr_data_uri
 from app.renderer.template_engine import TemplateEngine
 from app.renderer.themes import DEFAULT_STYLESHEET_URL, DEFAULT_TEMPLATE
 from exceptions import RendererException
@@ -60,6 +61,17 @@ class HtmlRenderer(BaseRenderer):
         question_count_str = f"{question_count} {question_word}"
         source_url = conversation.metadata.source_url or conversation.metadata.final_url or ""
         source_url_short = _shorten_url(source_url)
+        qr_code_data_uri = generate_qr_data_uri(source_url) if source_url else ""
+        qr_code_html = (
+            f'<div class="qr-placeholder"><img src="{qr_code_data_uri}" alt="QR code to original conversation link" /></div>'
+            if qr_code_data_uri
+            else ""
+        )
+        source_url_link_html = (
+            f'<a href="{escape(source_url)}" class="source-card-link" target="_blank" rel="noopener noreferrer">Open Original Chat ↗</a>'
+            if source_url
+            else ""
+        )
         toc = self._render_toc(prompts)
         summary_line = self._render_summary_line(conversation, len(prompts), generated_date)
 
@@ -83,10 +95,14 @@ class HtmlRenderer(BaseRenderer):
                 "subtitle": escape(_subtitle_for(conversation)),
                 "stylesheet_url": DEFAULT_STYLESHEET_URL,
                 "platform": escape(_display_platform(str(conversation.platform))),
+                "platform_token": escape(_class_token(str(conversation.platform))),
                 "generated_date": escape(generated_date),
                 "question_count_str": escape(question_count_str),
                 "source_url": escape(source_url),
                 "source_url_short": escape(source_url_short),
+                "qr_code_data_uri": qr_code_data_uri,
+                "qr_code_html": qr_code_html,
+                "source_url_link_html": source_url_link_html,
                 "layout_class": " ".join(layout_classes),
                 "page_size": page_size_str,
                 "page_margin": page_margin_str,

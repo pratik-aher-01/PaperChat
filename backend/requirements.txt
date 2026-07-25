@@ -10,3 +10,4 @@ pygments
 pytest
 pytest-asyncio
 httpx2
+qrcode[pil]

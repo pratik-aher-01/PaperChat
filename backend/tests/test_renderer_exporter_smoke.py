@@ -261,6 +261,30 @@ def _conversation_payload() -> dict[str, object]:
     }
 
 
+def test_qr_generator_creates_valid_data_uri() -> None:
+    """QR code generator creates a base64-encoded PNG Data URI for valid URLs."""
+    from app.renderer.qr_generator import generate_qr_data_uri
+
+    data_uri = generate_qr_data_uri("https://chatgpt.com/share/6a54d9ee-0454-4638")
+    assert data_uri.startswith("data:image/png;base64,")
+    assert len(data_uri) > 100
+
+    empty_uri = generate_qr_data_uri("")
+    assert empty_uri == ""
+
+
+def test_html_renderer_embeds_qr_code_and_open_link_on_cover() -> None:
+    """HTML renderer embeds base64 QR code image and clickable original chat link on the cover."""
+    conversation = build_conversation()
+    html = HtmlRenderer().render(conversation)
+
+    assert "data:image/png;base64," in html
+    assert "Open Original Chat ↗" in html
+    assert 'href="https://chatgpt.com/c/example"' in html
+
+
 if __name__ == "__main__":
     test_html_renderer_outputs_document()
+    test_qr_generator_creates_valid_data_uri()
+    test_html_renderer_embeds_qr_code_and_open_link_on_cover()
     asyncio.run(test_pdf_exporter_outputs_pdf_bytes())
