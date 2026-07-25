@@ -13,3 +13,6 @@ DEFAULT_CORS_ORIGINS = (
     "http://localhost:3001",
     "http://127.0.0.1:3001",
 )
+DEFAULT_DOCUMENT_LAYOUT = "single"
+DEFAULT_PDF_ENGINE = "playwright"
+

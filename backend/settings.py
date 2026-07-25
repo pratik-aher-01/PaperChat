@@ -9,8 +9,10 @@ from config import (
     DEFAULT_APP_NAME,
     DEFAULT_APP_VERSION,
     DEFAULT_CORS_ORIGINS,
+    DEFAULT_DOCUMENT_LAYOUT,
     DEFAULT_HOST,
     DEFAULT_LOG_LEVEL,
+    DEFAULT_PDF_ENGINE,
     DEFAULT_PORT,
 )
 
@@ -27,6 +29,14 @@ class Settings(BaseSettings):
     cors_origins: str | tuple[str, ...] = Field(
         default=DEFAULT_CORS_ORIGINS,
         alias="CORS_ORIGINS",
+    )
+    document_layout: str = Field(
+        default=DEFAULT_DOCUMENT_LAYOUT,
+        alias="DOCUMENT_LAYOUT",
+    )
+    pdf_engine: str = Field(
+        default=DEFAULT_PDF_ENGINE,
+        alias="PDF_ENGINE",
     )
 
     @field_validator("cors_origins", mode="before")
@@ -45,14 +55,6 @@ class Settings(BaseSettings):
             return False
         if isinstance(value, str) and value.lower() in {"development", "dev"}:
             return True
-        return value
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, value: Any) -> Any:
-        """Parse comma-separated CORS origins."""
-        if isinstance(value, str):
-            return tuple(origin.strip() for origin in value.split(",") if origin.strip())
         return value
 
     model_config = SettingsConfigDict(

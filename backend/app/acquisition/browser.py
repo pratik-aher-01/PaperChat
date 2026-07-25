@@ -70,77 +70,103 @@ def _elapsed_ms(started_at: float) -> int:
 
 
 def _wait_for_render_settle(page: Page) -> None:
-    """Wait for late client-side rendering without failing on active apps."""
-    try:
-        page.wait_for_load_state("networkidle", timeout=10_000)
-    except PlaywrightError:
-        page.wait_for_timeout(2_000)
+    """Wait for late client-side rendering without long idle timeouts."""
+    selectors = (
+        "[data-message-author-role]",
+        "article",
+        ".font-claude-message",
+        ".ds-markdown",
+        "[data-testid*='message']",
+    )
+    for selector in selectors:
+        try:
+            page.wait_for_selector(selector, timeout=3_000)
+            page.wait_for_timeout(300)
+            return
+        except PlaywrightError:
+            continue
+    page.wait_for_timeout(1_000)
 
 
 def _collect_lazy_rendered_messages(page: Page) -> list[str]:
-    """Scroll through SPA content and preserve virtualized message nodes."""
+    """Scroll through SPA content and preserve virtualized message nodes across the full page."""
+    # Step 1: Scroll to the very top to trigger loading of top lazy-rendered content
+    _scroll_to_top(page)
+
     seen: set[str] = set()
     messages: list[str] = []
 
-    try:
-        page.keyboard.press("End")
-        _scroll_chat_surface(page, "bottom")
-        page.wait_for_timeout(500)
-    except PlaywrightError:
-        return messages
+    # Step 2: Collect visible messages at the top after scrolling to top
+    for msg in _visible_message_snapshots(page):
+        seen.add(msg["key"])
+        messages.append(msg["html"])
 
-    _walk_chat_surface(page, direction="up", collect=False, seen=seen, messages=messages)
-
-    seen.clear()
-    messages.clear()
-
-    try:
-        _scroll_chat_surface(page, "top")
-        page.keyboard.press("Home")
-        page.wait_for_timeout(600)
-    except PlaywrightError:
-        return messages
-
-    _walk_chat_surface(page, direction="down", collect=True, seen=seen, messages=messages)
+    # Step 3: Step down through the entire chat surface to collect all virtualized messages
+    _walk_chat_surface_down(page, seen=seen, messages=messages)
 
     return messages
 
 
-def _walk_chat_surface(
+def _scroll_to_top(page: Page) -> None:
+    """Scroll repeatedly to top edge until position stabilizes at top."""
+    last_position = -1
+    stable_reads = 0
+
+    for _ in range(60):
+        try:
+            state = _scroll_chat_surface(page, "up")
+            page.keyboard.press("Home")
+            page.wait_for_timeout(150)
+        except PlaywrightError:
+            break
+
+        position = int(state.get("position", 0))
+        if position <= 15 or position == last_position:
+            stable_reads += 1
+        else:
+            stable_reads = 0
+
+        if position <= 15 and stable_reads >= 3:
+            break
+
+        last_position = position
+
+
+def _walk_chat_surface_down(
     page: Page,
     *,
-    direction: str,
-    collect: bool,
     seen: set[str],
     messages: list[str],
 ) -> None:
-    """Walk a virtualized chat surface in one direction."""
+    """Walk down the full chat surface step-by-step, collecting visible message snapshots."""
     stable_reads = 0
     last_position = -1
     last_extent = -1
 
-    for _ in range(90):
-        if collect:
-            for message in _visible_message_snapshots(page):
-                key = message["key"]
-                if key in seen:
-                    continue
-                seen.add(key)
-                messages.append(message["html"])
+    for _ in range(250):
+        # Collect visible messages at current scroll position
+        for message in _visible_message_snapshots(page):
+            key = message["key"]
+            if key in seen:
+                continue
+            seen.add(key)
+            messages.append(message["html"])
 
         try:
-            state = _scroll_chat_surface(page, direction)
-            page.wait_for_timeout(350)
+            state = _scroll_chat_surface(page, "down")
+            page.keyboard.press("PageDown")
+            page.wait_for_timeout(200)
         except PlaywrightError:
             break
 
         position = int(state.get("position", 0))
         extent = int(state.get("extent", 0))
         viewport = int(state.get("viewport", 0))
-        at_edge = position <= 24 if direction == "up" else position + viewport >= extent - 24
+
+        at_edge = position + viewport >= extent - 20
         stable = position == last_position and extent == last_extent
 
-        if at_edge or stable:
+        if at_edge and stable:
             stable_reads += 1
         else:
             stable_reads = 0
@@ -151,19 +177,19 @@ def _walk_chat_surface(
         last_position = position
         last_extent = extent
 
-    if collect:
-        for message in _visible_message_snapshots(page):
-            key = message["key"]
-            if key not in seen:
-                seen.add(key)
-                messages.append(message["html"])
+    # Final collection at bottom
+    for message in _visible_message_snapshots(page):
+        key = message["key"]
+        if key not in seen:
+            seen.add(key)
+            messages.append(message["html"])
 
 
 def _scroll_chat_surface(page: Page, direction: str) -> dict[str, int]:
-    """Scroll the most likely ChatGPT conversation surface."""
+    """Scroll the conversation surface in direction ('up', 'down', 'top', 'bottom')."""
     return page.evaluate(
         """(direction) => {
-            const messageSelector = '[data-message-author-role]';
+            const messageSelector = '[data-message-author-role], article, [data-testid*="message"], .font-claude-message, .ds-markdown';
             const scrollables = Array.from(document.querySelectorAll('body, body *'))
                 .filter((node) => {
                     const style = window.getComputedStyle(node);
@@ -190,7 +216,7 @@ def _scroll_chat_surface(page: Page, direction: str) -> dict[str, int]:
             const current = root === documentRoot
                 ? window.scrollY || documentRoot.scrollTop || 0
                 : root.scrollTop;
-            const step = Math.max(viewport * 0.82, 650);
+            const step = Math.max(Math.round(viewport * 0.75), 450);
 
             let next = current;
             if (direction === 'top') {
@@ -205,9 +231,12 @@ def _scroll_chat_surface(page: Page, direction: str) -> dict[str, int]:
 
             if (root === documentRoot) {
                 window.scrollTo(0, next);
+                if (document.body) document.body.scrollTop = next;
+                if (document.documentElement) document.documentElement.scrollTop = next;
             } else {
                 root.scrollTop = next;
                 root.dispatchEvent(new Event('scroll', { bubbles: true }));
+                window.scrollBy(0, direction === 'up' ? -step : step);
             }
 
             return {
@@ -224,22 +253,33 @@ def _visible_message_snapshots(page: Page) -> list[dict[str, str]]:
     """Read currently mounted message nodes from the page."""
     try:
         snapshots = page.evaluate(
-            """() => Array.from(document.querySelectorAll('[data-message-author-role]'))
-                .map((node, index) => {
-                    const role = node.getAttribute('data-message-author-role') || '';
-                    const id = node.getAttribute('data-message-id')
-                        || node.getAttribute('data-testid')
-                        || node.id
-                        || '';
-                    const text = (node.innerText || node.textContent || '')
-                        .replace(/\\s+/g, ' ')
-                        .trim();
-                    return {
-                        key: id || `${role}:${text.slice(0, 240)}:${index}`,
-                        html: node.outerHTML || ''
-                    };
-                })
-                .filter((item) => item.html && item.key)"""
+            """() => {
+                let nodes = Array.from(document.querySelectorAll('[data-message-author-role]'));
+                if (nodes.length === 0) {
+                    nodes = Array.from(document.querySelectorAll('article, [data-testid*="message"], .font-claude-message, .ds-markdown'));
+                }
+                const topLevelNodes = nodes.filter(node => !nodes.some(other => other !== node && other.contains(node)));
+
+                return topLevelNodes
+                    .map((node) => {
+                        const role = node.getAttribute('data-message-author-role')
+                            || node.getAttribute('data-message-role')
+                            || '';
+                        const id = node.getAttribute('data-message-id')
+                            || node.getAttribute('data-testid')
+                            || node.id
+                            || '';
+                        const text = (node.innerText || node.textContent || '')
+                            .replace(/\\s+/g, ' ')
+                            .trim();
+                        const key = id ? `id:${id}` : `${role}:${text.slice(0, 200)}`;
+                        return {
+                            key: key,
+                            html: node.outerHTML || ''
+                        };
+                    })
+                    .filter((item) => item.html && item.key && item.key.length > 3);
+            }"""
         )
     except PlaywrightError:
         return []

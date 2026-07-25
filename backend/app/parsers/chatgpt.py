@@ -141,6 +141,30 @@ def _dedupe_key(node: Tag, role: str, plain_text: str) -> str:
     return f"text:{role}:{normalized_text[:500]}"
 
 
+def _extract_latex_math(node: Tag) -> str | None:
+    """Extract raw TeX from KaTeX / MathJax DOM nodes if present."""
+    classes = set(node.get("class", []) if isinstance(node.get("class"), list) else [])
+
+    # Check for KaTeX annotation tag (contains clean raw TeX source)
+    annotation = node.find("annotation", attrs={"encoding": "application/x-tex"})
+    if isinstance(annotation, Tag) and annotation.string:
+        tex = annotation.string.strip()
+        if "katex-display" in classes or "math-display" in classes or node.name == "div":
+            return f"\n\n$$ {tex} $$\n\n"
+        return f" $ {tex} $ "
+
+    # Check for MathJax or data-formula / data-tex attribute
+    for attr in ("data-formula", "data-tex", "data-math"):
+        val = node.get(attr)
+        if isinstance(val, str) and val.strip():
+            tex = val.strip()
+            if "katex-display" in classes or "math-display" in classes or node.name == "div":
+                return f"\n\n$$ {tex} $$\n\n"
+            return f" $ {tex} $ "
+
+    return None
+
+
 def _node_to_markdown(node: Tag) -> str:
     """Convert semantic HTML content to markdown-like text."""
     parts = [_child_to_markdown(child, list_depth=0) for child in node.children]
@@ -153,6 +177,14 @@ def _child_to_markdown(node: Tag | NavigableString, list_depth: int) -> str:
         return str(node)
     if not isinstance(node, Tag):
         return ""
+
+    classes = set(node.get("class", []) if isinstance(node.get("class"), list) else [])
+    if "katex-html" in classes:
+        return ""
+
+    math = _extract_latex_math(node)
+    if math is not None:
+        return math
 
     name = node.name.lower()
     if name in {"script", "style", "svg", "button"}:
@@ -192,6 +224,15 @@ def _inline_text(node: Tag) -> str:
         if isinstance(child, NavigableString):
             parts.append(str(child))
         elif isinstance(child, Tag):
+            classes = set(child.get("class", []) if isinstance(child.get("class"), list) else [])
+            if "katex-html" in classes:
+                continue
+
+            math = _extract_latex_math(child)
+            if math is not None:
+                parts.append(math)
+                continue
+
             name = child.name.lower()
             if name == "code":
                 parts.append(f"`{child.get_text()}`")
@@ -294,6 +335,13 @@ def _markdown_row(values: list[str]) -> str:
 
 def _extract_messages_from_embedded_data(soup: BeautifulSoup) -> Iterable[Message]:
     """Extract messages from ChatGPT app JSON when the DOM is virtualized."""
+    for payload in _json_script_payloads(soup):
+        for item in _walk_json(payload):
+            if isinstance(item, dict) and "mapping" in item and isinstance(item["mapping"], dict):
+                mapping_messages = _extract_messages_from_mapping(item["mapping"])
+                if mapping_messages:
+                    return mapping_messages
+
     candidates: list[tuple[float, int, Message]] = []
     seen: set[str] = set()
     order = 0
@@ -338,6 +386,75 @@ def _extract_messages_from_embedded_data(soup: BeautifulSoup) -> Iterable[Messag
 
     candidates.sort(key=lambda candidate: (candidate[0], candidate[1]))
     return [candidate[2] for candidate in candidates]
+
+
+def _extract_messages_from_mapping(mapping: dict[object, object]) -> list[Message]:
+    """Reconstruct a linear conversation from ChatGPT mapping tree in top-to-bottom order."""
+    if not isinstance(mapping, dict):
+        return []
+
+    nodes_by_id: dict[str, dict[object, object]] = {}
+    child_to_parent: dict[str, str] = {}
+    parent_to_children: dict[str, list[str]] = {}
+
+    for node_id, node in mapping.items():
+        if isinstance(node_id, str) and isinstance(node, dict):
+            nodes_by_id[node_id] = node
+            parent_id = node.get("parent")
+            if isinstance(parent_id, str):
+                child_to_parent[node_id] = parent_id
+            children = node.get("children")
+            if isinstance(children, list):
+                parent_to_children[node_id] = [c for c in children if isinstance(c, str)]
+
+    roots = [
+        node_id for node_id in nodes_by_id
+        if node_id not in child_to_parent or child_to_parent[node_id] not in nodes_by_id
+    ]
+
+    ordered_nodes: list[dict[object, object]] = []
+    visited: set[str] = set()
+
+    for root_id in roots:
+        curr: str | None = root_id
+        while curr and curr in nodes_by_id and curr not in visited:
+            visited.add(curr)
+            node = nodes_by_id[curr]
+            ordered_nodes.append(node)
+            children = parent_to_children.get(curr, [])
+            curr = children[0] if children else None
+
+    messages: list[Message] = []
+    seen: set[str] = set()
+    for index, node in enumerate(ordered_nodes, start=1):
+        message_data = node.get("message") if isinstance(node.get("message"), dict) else node
+        if not isinstance(message_data, dict):
+            continue
+
+        role = _json_message_role(message_data)
+        if role is None:
+            continue
+
+        plain_text = _json_message_text(message_data)
+        if not plain_text:
+            continue
+
+        message_id = _json_message_id(message_data, fallback=f"embedded-{index}")
+        key = f"{message_id}:{role}:{plain_text[:240]}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        messages.append(
+            Message(
+                id=message_id,
+                role=role,
+                plain_text=plain_text,
+                content_blocks=(ContentBlock(type="markdown", text=plain_text),),
+            )
+        )
+
+    return messages
 
 
 def _json_script_payloads(soup: BeautifulSoup) -> Iterable[object]:

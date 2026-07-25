@@ -59,11 +59,11 @@ export default function PreviewPage() {
             link.click();
           }}
           onFullscreen={() => {
-            const element = document.documentElement;
-            if (!document.fullscreenElement) {
+            const element = window.document.documentElement;
+            if (!window.document.fullscreenElement) {
               element.requestFullscreen?.();
             } else {
-              document.exitFullscreen?.();
+              window.document.exitFullscreen?.();
             }
           }}
         />

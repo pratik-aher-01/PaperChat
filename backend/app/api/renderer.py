@@ -13,6 +13,7 @@ from app.domain.metadata import ConversationMetadata
 from app.renderer.html_renderer import HtmlRenderer
 from exceptions import RendererException
 from logger import logger
+from settings import settings
 
 router = APIRouter(prefix="/api/render", tags=["render"])
 
@@ -52,6 +53,7 @@ class ConversationInput(BaseModel):
     messages: list[MessageInput]
     metadata: ConversationMetadataInput = Field(default_factory=ConversationMetadataInput)
     raw_html: str = ""
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
 def conversation_from_input(payload: ConversationInput) -> Conversation:
@@ -86,14 +88,25 @@ def conversation_from_input(payload: ConversationInput) -> Conversation:
 
 def get_html_renderer() -> HtmlRenderer:
     """Provide the default HTML renderer."""
-    return HtmlRenderer()
+    return HtmlRenderer(layout=settings.document_layout)
 
 
 @router.post("/html", response_class=Response)
 def render_html(payload: ConversationInput) -> Response:
     """Render a conversation as a complete HTML document."""
     try:
-        html = get_html_renderer().render(conversation_from_input(payload))
+        opts = payload.options
+        custom_renderer = HtmlRenderer(
+            layout=str(opts.get("layout", "single")),
+            font_family=str(opts.get("font_family", "inter")),
+            font_size=str(opts.get("font_size", "medium")),
+            line_spacing=str(opts.get("line_spacing", "normal")),
+            theme=str(opts.get("theme", "default")),
+            show_cover=bool(opts.get("show_cover", True)),
+            page_format=str(opts.get("page_format", "A4")),
+            margin=str(opts.get("margin", "normal")),
+        )
+        html = custom_renderer.render(conversation_from_input(payload))
     except RendererException as exc:
         logger.warning("Rendering failed: %s", exc)
         raise HTTPException(

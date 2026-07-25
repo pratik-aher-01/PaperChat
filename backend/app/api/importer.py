@@ -239,5 +239,8 @@ def _supported_response(importer: BaseImporter) -> ImportDetectResponse:
 
 def _save_debug_html(result: FetchResult) -> None:
     """Save fetched HTML for local debugging."""
-    DEBUG_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DEBUG_HTML_PATH.write_text(result.html, encoding="utf-8")
+    try:
+        DEBUG_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DEBUG_HTML_PATH.write_text(result.html, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Could not save debug HTML to %s: %s", DEBUG_HTML_PATH, exc)

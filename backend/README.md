@@ -24,6 +24,28 @@ Create a local `.env` file from `.env.example` and adjust values as needed.
 Copy-Item .env.example .env
 ```
 
+PDF generation defaults to the existing Playwright engine:
+
+```powershell
+PDF_ENGINE=playwright
+```
+
+To try the print-aware WeasyPrint engine:
+
+```powershell
+PDF_ENGINE=weasyprint
+```
+
+Optional document layout modes are configured without changing API payloads:
+
+```powershell
+DOCUMENT_LAYOUT=single      # default
+DOCUMENT_LAYOUT=two-column  # prose may flow in columns
+DOCUMENT_LAYOUT=auto        # browser/renderer chooses column width
+```
+
+On Windows, WeasyPrint also requires native GTK/Pango libraries. If PDF generation fails with a missing library such as `libgobject-2.0-0`, install the GTK runtime dependencies documented by WeasyPrint/CourtBouillon, then restart the shell so the DLLs are on `PATH`. The Playwright exporter is lazy-loaded and remains usable with `PDF_ENGINE=playwright` even when WeasyPrint native dependencies are unavailable.
+
 ## Run the API
 
 ```powershell

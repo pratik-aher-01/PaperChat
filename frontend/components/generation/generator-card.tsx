@@ -10,6 +10,7 @@ import { useGenerate } from "@/hooks/use-generate";
 import { cn } from "@/lib/utils";
 import type { InputMode, ProviderId } from "@/types/chat";
 
+import { DEFAULT_PDF_SETTINGS, PdfSettingsDialog } from "./pdf-settings-dialog";
 import { ProviderMark } from "./provider-mark";
 
 const providers: { name: string; id: ProviderId }[] = [
@@ -24,6 +25,7 @@ export function GeneratorCard() {
   const [provider, setProvider] = useState<ProviderId>("chatgpt");
   const [link, setLink] = useState("");
   const [rawText, setRawText] = useState("");
+  const [pdfSettings, setPdfSettings] = useState(DEFAULT_PDF_SETTINGS);
   const { error, isSubmitting, submit } = useGenerate();
 
   return (
@@ -31,28 +33,32 @@ export function GeneratorCard() {
       className="mx-auto w-full max-w-[580px] rounded-[18px] border border-white/12 bg-[#18181B] p-3 text-left shadow-[0_24px_70px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.07)] sm:p-4"
       onSubmit={(event) => {
         event.preventDefault();
-        submit({ mode, provider, link, rawText });
+        submit({ mode, provider, link, rawText, options: pdfSettings });
       }}
     >
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
-        {[
-          { id: "link", label: "share link" },
-          { id: "text", label: "paste text" },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setMode(tab.id as InputMode)}
-            disabled={tab.id === "text"}
-            className={cn(
-              "rounded-md px-1.5 py-1 text-zinc-500 transition hover:text-white",
-              mode === tab.id && "bg-white text-black hover:text-black",
-              tab.id === "text" && "cursor-not-allowed opacity-45 hover:text-zinc-500",
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="mb-2 flex items-center justify-between text-sm font-semibold">
+        <div className="flex items-center gap-2">
+          {[
+            { id: "link", label: "share link" },
+            { id: "text", label: "paste text" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setMode(tab.id as InputMode)}
+              disabled={tab.id === "text"}
+              className={cn(
+                "rounded-md px-1.5 py-1 text-zinc-500 transition hover:text-white",
+                mode === tab.id && "bg-white text-black hover:text-black",
+                tab.id === "text" && "cursor-not-allowed opacity-45 hover:text-zinc-500",
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <PdfSettingsDialog settings={pdfSettings} onChange={setPdfSettings} />
       </div>
 
       <AnimatePresence mode="wait">
@@ -92,18 +98,13 @@ export function GeneratorCard() {
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           {providers.map((item) => (
-            <button
+            <div
               key={item.id}
-              type="button"
-              aria-label={item.name}
-              onClick={() => setProvider(item.id)}
-              className={cn(
-                "grid size-10 place-items-center rounded-lg border border-white/12 bg-[#09090B] text-zinc-400 transition hover:border-white/25 hover:text-white",
-                provider === item.id && "bg-white text-black hover:text-black",
-              )}
+              title={item.name}
+              className="grid size-10 cursor-default place-items-center rounded-lg border border-white/20 bg-white shadow-sm"
             >
               <ProviderMark mark={item.id} />
-            </button>
+            </div>
           ))}
         </div>
 

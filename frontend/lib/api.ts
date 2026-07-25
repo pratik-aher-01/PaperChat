@@ -21,12 +21,26 @@ export async function generatePdf(input: ConversationInput): Promise<GeneratedPd
     throw new Error("Add a shared conversation link first.");
   }
 
+  const options = input.options
+    ? {
+        layout: input.options.layout,
+        page_format: input.options.pageFormat,
+        font_family: input.options.fontFamily,
+        font_size: input.options.fontSize,
+        line_spacing: input.options.lineSpacing,
+        margin: input.options.margin,
+        theme: input.options.theme,
+        show_cover: input.options.showCover,
+        show_headers: input.options.showHeaders,
+      }
+    : undefined;
+
   const response = await fetch(`${apiBaseUrl()}/api/generate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ url, options }),
   });
 
   if (!response.ok) {

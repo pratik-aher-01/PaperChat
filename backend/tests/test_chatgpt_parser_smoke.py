@@ -139,6 +139,35 @@ def test_chatgpt_parser_prefers_full_embedded_conversation_data() -> None:
     assert len(conversation.messages) == 3
 
 
+def test_chatgpt_parser_extracts_katex_formulas() -> None:
+    """Parse KaTeX DOM structures and extract clean LaTeX math formulas."""
+    html = """
+    <html>
+      <head><title>Math Chat</title></head>
+      <body>
+        <div data-message-author-role="user" data-message-id="u1">
+          <div class="markdown"><p>What is Einstein's equation?</p></div>
+        </div>
+        <div data-message-author-role="assistant" data-message-id="a1">
+          <div class="markdown">
+            <p>The equation is <span class="katex"><span class="katex-mathml"><annotation encoding="application/x-tex">E = mc^2</annotation></span><span class="katex-html">E=mc2</span></span>.</p>
+            <span class="katex-display"><span class="katex"><span class="katex-mathml"><annotation encoding="application/x-tex">\\int_0^\\infty f(x) dx</annotation></span><span class="katex-html">int_0_inf</span></span></span>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
+    conversation = ChatGPTParser().parse(_fetch_result(html, title="Math Chat"))
+
+    assert len(conversation.messages) == 2
+    assistant_text = conversation.messages[1].plain_text
+    assert "$ E = mc^2 $" in assistant_text
+    assert "$$ \\int_0^\\infty f(x) dx $$" in assistant_text
+    # Ensure raw visual katex-html strings were omitted
+    assert "E=mc2" not in assistant_text
+    assert "int_0_inf" not in assistant_text
+
+
 def _fetch_result(html: str, title: str = "Fixture") -> FetchResult:
     """Build a parser fetch fixture."""
     return FetchResult(
@@ -155,3 +184,4 @@ if __name__ == "__main__":
     test_chatgpt_parser_preserves_markdown_structures()
     test_chatgpt_parser_uses_collected_virtualized_messages()
     test_chatgpt_parser_prefers_full_embedded_conversation_data()
+    test_chatgpt_parser_extracts_katex_formulas()

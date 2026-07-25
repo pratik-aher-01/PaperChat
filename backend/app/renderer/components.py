@@ -1,54 +1,22 @@
 """Reusable HTML components for rendered documents."""
 
-from dataclasses import dataclass
 from html import escape
 
 
-@dataclass(frozen=True)
-class Heading:
-    """Rendered heading metadata for the table of contents."""
+def render_toc_prompt_item(index: int, label: str, anchor: str) -> str:
+    """Render one numbered table-of-contents entry for a user prompt.
 
-    level: int
-    text: str
-    anchor: str
-
-
-@dataclass(frozen=True)
-class MetadataItem:
-    """A compact metadata field shown in the document front matter."""
-
-    label: str
-    value: str
-
-
-def render_cover_stat(label: str, value: str) -> str:
-    """Render one cover page statistic."""
+    Each entry corresponds to one user prompt in the conversation, in the
+    order it was asked, and links straight to that prompt's section in the
+    document body.
+    """
     return (
-        '<div class="cover-stat">'
-        f"<dt>{escape(label)}</dt>"
-        f"<dd>{escape(value)}</dd>"
-        "</div>"
-    )
-
-
-def render_metadata_item(item: MetadataItem) -> str:
-    """Render one metadata card item."""
-    return (
-        '<div class="metadata-item">'
-        f"<dt>{escape(item.label)}</dt>"
-        f"<dd>{_link_or_text(item.value)}</dd>"
-        "</div>"
-    )
-
-
-def render_toc_item(heading: Heading) -> str:
-    """Render one dotted-leader TOC item."""
-    return (
-        f'<li class="toc-level-{heading.level}">'
-        f'<a href="#{escape(heading.anchor, quote=True)}">'
-        f'<span class="toc-title">{escape(heading.text)}</span>'
+        '<li class="toc-item">'
+        f'<a href="#{escape(anchor, quote=True)}">'
+        f'<span class="toc-index">{index}.</span>'
+        f'<span class="toc-title">{escape(label)}</span>'
         '<span class="toc-leader"></span>'
-        '<span class="toc-page"></span>'
+        '<span class="toc-page" aria-hidden="true"></span>'
         "</a>"
         "</li>"
     )
@@ -73,11 +41,3 @@ def render_section(
         f'<div class="message-content">{content}</div>'
         "</article>"
     )
-
-
-def _link_or_text(value: str) -> str:
-    """Render URLs as links."""
-    escaped = escape(value)
-    if value.startswith(("http://", "https://")):
-        return f'<a href="{escaped}">{escaped}</a>'
-    return escaped

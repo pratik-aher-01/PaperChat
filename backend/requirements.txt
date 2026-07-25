@@ -5,3 +5,8 @@ pydantic-settings
 python-dotenv
 playwright
 beautifulsoup4
+weasyprint
+pygments
+pytest
+pytest-asyncio
+httpx2

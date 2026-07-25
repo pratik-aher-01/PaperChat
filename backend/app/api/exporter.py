@@ -25,14 +25,29 @@ from logger import logger
 router = APIRouter(prefix="/api", tags=["export"])
 
 
+class GenerateOptions(BaseModel):
+    """Optional PDF rendering and exporter configuration."""
+
+    layout: str = "single"
+    page_format: str = "A4"
+    font_family: str = "inter"
+    font_size: str = "medium"
+    line_spacing: str = "normal"
+    margin: str = "normal"
+    theme: str = "default"
+    show_cover: bool = True
+    show_headers: bool = True
+
+
 class GenerateRequest(BaseModel):
     """Request payload for one-call PDF generation."""
 
     url: str = Field(min_length=1)
+    options: GenerateOptions = Field(default_factory=GenerateOptions)
 
 
 def get_pdf_exporter() -> PdfExporter:
-    """Provide the PDF exporter."""
+    """Provide the Playwright PDF exporter."""
     return PdfExporter()
 
 
@@ -44,9 +59,25 @@ async def export_pdf(
 ) -> Response:
     """Render and export a conversation as a PDF download."""
     conversation = conversation_from_input(payload)
+    opts = payload.options if isinstance(payload.options, dict) else payload.options.model_dump()
     try:
-        html = renderer.render(conversation)
-        pdf = await exporter.export(html)
+        custom_renderer = HtmlRenderer(
+            layout=str(opts.get("layout", "single")),
+            font_family=str(opts.get("font_family", "inter")),
+            font_size=str(opts.get("font_size", "medium")),
+            line_spacing=str(opts.get("line_spacing", "normal")),
+            theme=str(opts.get("theme", "default")),
+            show_cover=bool(opts.get("show_cover", True)),
+            page_format=str(opts.get("page_format", "A4")),
+            margin=str(opts.get("margin", "normal")),
+        )
+        html = custom_renderer.render(conversation)
+        pdf = await exporter.export(
+            html,
+            page_format=str(opts.get("page_format", "A4")),
+            margin=str(opts.get("margin", "normal")),
+            show_headers=bool(opts.get("show_headers", True)),
+        )
     except RendererException as exc:
         raise _structured_error(422, "renderer_failed", str(exc)) from exc
     except ExporterException as exc:
@@ -81,8 +112,24 @@ async def generate_pdf(
             parser_factory=parser_factory,
             normalizer=normalizer,
         )
-        html = renderer.render(conversation)
-        pdf = await exporter.export(html)
+        opts = payload.options
+        custom_renderer = HtmlRenderer(
+            layout=opts.layout,
+            font_family=opts.font_family,
+            font_size=opts.font_size,
+            line_spacing=opts.line_spacing,
+            theme=opts.theme,
+            show_cover=opts.show_cover,
+            page_format=opts.page_format,
+            margin=opts.margin,
+        )
+        html = custom_renderer.render(conversation)
+        pdf = await exporter.export(
+            html,
+            page_format=opts.page_format,
+            margin=opts.margin,
+            show_headers=opts.show_headers,
+        )
     except HTTPException:
         raise
     except RendererException as exc:

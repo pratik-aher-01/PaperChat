@@ -2,12 +2,28 @@
 
 import asyncio
 
+import pytest
+
+from app.api.exporter import export_pdf, generate_pdf, get_pdf_exporter
+from app.api.importer import (
+    get_browser_fetcher,
+    get_conversation_normalizer,
+    get_importer_factory,
+    get_parser_factory,
+)
 from app.domain.conversation import Conversation
 from app.domain.enums import Platform
 from app.domain.message import Message
 from app.domain.metadata import ConversationMetadata
 from app.exporters.pdf import PdfExporter
+from app.importers.factory import ImporterFactory
+from app.importers.registry import create_default_registry
+from app.main import create_app
+from app.parsers.factory import ParserFactory
+from app.parsers.registry import create_default_parser_registry
 from app.renderer.html_renderer import HtmlRenderer
+from app.services.conversation_normalizer import ConversationNormalizer
+from fastapi.testclient import TestClient
 
 
 def build_conversation() -> Conversation:
@@ -57,19 +73,192 @@ def test_html_renderer_outputs_document() -> None:
     assert "<!doctype html>" in html
     assert "Technical Notes" in html
     assert '<nav class="toc"' in html
+    assert '<ol class="toc-list">' in html
+    assert 'href="#u1"' in html
     assert '<figure class="code-block language-python">' in html
+    assert '<code class="highlight">' in html
     assert "<table>" in html
     assert 'class="page-break"' in html
     assert 'style="' not in html
 
 
+def test_toc_contains_one_entry_per_heading() -> None:
+    """TOC contains anchors for each rendered prompt."""
+    conversation = build_conversation()
+    html = HtmlRenderer().render(conversation)
+
+    assert html.count('href="#u1"') == 1
+    assert '<span class="toc-title">Explain tables and code.</span>' in html
+    assert '<span class="toc-leader"></span>' in html
+    assert '<span class="toc-page" aria-hidden="true"></span>' in html
+
+
+def test_html_renderer_applies_custom_settings() -> None:
+    """Renderer applies custom typography, font size, theme, and cover options."""
+    conversation = build_conversation()
+    html = HtmlRenderer(
+        layout="two-column",
+        font_family="serif",
+        font_size="large",
+        line_spacing="relaxed",
+        theme="dark",
+        show_cover=False,
+    ).render(conversation)
+
+    assert "layout-two-column font-serif size-large spacing-relaxed theme-dark no-cover" in html
+
+
+def test_known_language_code_block_uses_pygments_spans() -> None:
+    """Known language fences are syntax highlighted when Pygments is available."""
+    pytest.importorskip("pygments")
+
+    html = HtmlRenderer().render(build_conversation())
+
+    assert '<span class="nb">print</span>' in html or '<span class="k">print</span>' in html
+
+
+def test_unknown_language_code_block_does_not_raise() -> None:
+    """Unknown language names fall back to plain text."""
+    conversation = build_conversation()
+    message = Message(
+        id="a2",
+        role="assistant",
+        plain_text="```unknown-garbage-language\nhello\n```",
+    )
+    conversation = Conversation(
+        platform=conversation.platform,
+        title=conversation.title,
+        messages=(message,),
+        metadata=conversation.metadata,
+        raw_html=conversation.raw_html,
+    )
+
+    html = HtmlRenderer().render(conversation)
+
+    assert "unknown-garbage-language" in html
+    assert "hello" in html
+
+
+def test_missing_language_code_block_does_not_raise() -> None:
+    """Missing language labels fall back to text highlighting."""
+    conversation = build_conversation()
+    message = Message(id="a2", role="assistant", plain_text="```\nhello\n```")
+    conversation = Conversation(
+        platform=conversation.platform,
+        title=conversation.title,
+        messages=(message,),
+        metadata=conversation.metadata,
+        raw_html=conversation.raw_html,
+    )
+
+    html = HtmlRenderer().render(conversation)
+
+    assert "<figcaption>code</figcaption>" in html
+    assert "hello" in html
+
+
 async def test_pdf_exporter_outputs_pdf_bytes() -> None:
     """PDF exporter produces a PDF byte stream."""
+    pytest.importorskip("playwright")
     html = HtmlRenderer().render(build_conversation())
     pdf = await PdfExporter().export(html)
 
-    assert pdf.startswith(b"%PDF")
+    assert pdf.startswith(b"%PDF-")
     assert len(pdf) > 1_000
+
+
+class FakePdfExporter:
+    """Test PDF exporter that avoids browser dependencies."""
+
+    async def export(self, html: str, **kwargs) -> bytes:
+        """Return deterministic PDF-like bytes."""
+        assert "<!doctype html>" in html
+        return b"%PDF-1.4\n% fake\n"
+
+
+class FakeFetcher:
+    """Test fetcher for one-call generation."""
+
+    async def fetch(self, url: str):
+        """Return deterministic ChatGPT-like HTML."""
+        from app.domain.fetch_result import FetchResult
+        html = """
+        <html>
+          <head><title>Generated Fixture</title></head>
+          <body>
+            <div data-message-author-role="user" data-message-id="u1">
+              <div class="whitespace-pre-wrap">Hello</div>
+            </div>
+            <div data-message-author-role="assistant" data-message-id="a1">
+              <div class="markdown"><h2>Answer</h2><p>Hi there</p></div>
+            </div>
+          </body>
+        </html>
+        """
+        return FetchResult(
+            url=url,
+            final_url=url,
+            title="Generated Fixture",
+            html=html,
+            status=200,
+            fetch_time_ms=1,
+        )
+
+
+def test_export_pdf_api_returns_pdf_bytes() -> None:
+    """The export endpoint keeps its public response contract."""
+    app = create_app()
+    app.dependency_overrides[get_pdf_exporter] = lambda: FakePdfExporter()
+    client = TestClient(app)
+
+    response = client.post("/api/export/pdf", json=_conversation_payload())
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF-")
+
+
+def test_generate_api_returns_pdf_bytes() -> None:
+    """The one-call generation endpoint keeps its public response contract."""
+    app = create_app()
+    app.dependency_overrides[get_pdf_exporter] = lambda: FakePdfExporter()
+    app.dependency_overrides[get_importer_factory] = lambda: ImporterFactory(create_default_registry())
+    app.dependency_overrides[get_browser_fetcher] = lambda: FakeFetcher()
+    app.dependency_overrides[get_parser_factory] = lambda: ParserFactory(create_default_parser_registry())
+    app.dependency_overrides[get_conversation_normalizer] = lambda: ConversationNormalizer()
+    client = TestClient(app)
+
+    response = client.post("/api/generate", json={"url": "https://chatgpt.com/c/example"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF-")
+
+
+def _conversation_payload() -> dict[str, object]:
+    """Build an API-compatible conversation payload."""
+    conversation = build_conversation()
+    return {
+        "platform": conversation.platform.value,
+        "title": conversation.title,
+        "messages": [
+            {
+                "id": message.id,
+                "role": message.role,
+                "plain_text": message.plain_text,
+                "content_blocks": [],
+            }
+            for message in conversation.messages
+        ],
+        "metadata": {
+            "source_url": conversation.metadata.source_url,
+            "final_url": conversation.metadata.final_url,
+            "title": conversation.metadata.title,
+            "raw_html": conversation.metadata.raw_html,
+            "fetch_time_ms": conversation.metadata.fetch_time_ms,
+            "extra": {},
+        },
+    }
 
 
 if __name__ == "__main__":
