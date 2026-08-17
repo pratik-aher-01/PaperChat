@@ -29,6 +29,23 @@ export function useGenerate() {
         return;
       }
 
+      const trimmedLink = (input.link || "").trim();
+      if (!/^https?:\/\//i.test(trimmedLink)) {
+        setError("Please enter a valid URL starting with http:// or https://");
+        return;
+      }
+
+      try {
+        const parsed = new URL(trimmedLink);
+        if (!parsed.hostname || parsed.hostname.length > 255 || trimmedLink.length > 2048) {
+          setError("Please enter a valid share URL.");
+          return;
+        }
+      } catch {
+        setError("Please enter a valid share URL.");
+        return;
+      }
+
       setIsSubmitting(true);
       clearGeneratedDocument();
       window.sessionStorage.setItem(INPUT_STORAGE_KEY, JSON.stringify(input));

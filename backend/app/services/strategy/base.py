@@ -39,67 +39,7 @@ class BaseDocumentStrategy(ABC):
         all_messages: list[Message],
         kicker_prefix: str = "Section",
     ) -> list[DocumentSection]:
-        """Convert a real user prompt and assistant response into one or more structured DocumentSections."""
-        resp_text = self.cleaner.clean_text(assistant_msg.plain_text, strip_fluff=True)
-        resp_text = self.cleaner.deduplicate_code_blocks(resp_text)
-
-        sub_heading_matches = list(re.finditer(r"^(?:#{1,3}\s+)(?:\d+[\.\)]\s*)?([^\n]+)", resp_text, re.MULTILINE))
-
-        if len(sub_heading_matches) >= 2:
-            sections: list[DocumentSection] = []
-            sec_counter = index_offset
-            for i, match in enumerate(sub_heading_matches):
-                title = match.group(1).strip()
-                start_pos = match.start()
-                end_pos = sub_heading_matches[i + 1].start() if i + 1 < len(sub_heading_matches) else len(resp_text)
-                chunk_text = resp_text[start_pos:end_pos].strip()
-
-                elements: list[DocumentElement] = []
-                if i == 0 and prompt_msg and prompt_msg.plain_text.strip():
-                    clean_prompt = self.cleaner.clean_text(prompt_msg.plain_text, strip_fluff=True)
-                    elements.append(
-                        DocumentElement(
-                            kind=ElementKind.CALLOUT,
-                            content=clean_prompt,
-                            metadata={"label": "User Query"},
-                        )
-                    )
-
-                parts = re.split(r"(```[\s\S]*?```)", chunk_text)
-                for part in parts:
-                    p_strip = part.strip()
-                    if not p_strip:
-                        continue
-                    if p_strip.startswith("```"):
-                        lang_match = re.match(r"^```(\w*)", p_strip)
-                        lang = lang_match.group(1) if lang_match else ""
-                        code_body = re.sub(r"^```\w*\n?|\n?```$", "", p_strip)
-                        elements.append(
-                            DocumentElement(
-                                kind=ElementKind.CODE_BLOCK,
-                                content=code_body,
-                                metadata={"language": lang},
-                            )
-                        )
-                    else:
-                        elements.append(
-                            DocumentElement(
-                                kind=ElementKind.PARAGRAPH,
-                                content=p_strip,
-                            )
-                        )
-
-                sections.append(
-                    DocumentSection(
-                        id=f"sec-{sec_counter:02d}",
-                        title=title,
-                        kicker=f"{kicker_prefix} {sec_counter:02d}",
-                        elements=elements,
-                    )
-                )
-                sec_counter += 1
-            return sections
-
+        """Convert a user prompt and assistant response into a single structured DocumentSection."""
         return [self._turn_to_section(index_offset, prompt_msg, assistant_msg, all_messages, kicker_prefix)]
 
     def _turn_to_section(
@@ -179,27 +119,22 @@ class BaseDocumentStrategy(ABC):
         assistant_msg: Message,
         index: int,
     ) -> str:
-        """Extract a clean, human-readable section title from real assistant or prompt text."""
-        # 1. Look for explicit headings in assistant response (e.g. "Topic 1: Types of Data")
-        resp_text = assistant_msg.plain_text.strip()
-        topic_match = re.search(
-            r"^(?:#{1,4}\s+)?(?:Topic\s+\d+:?|Section\s+\d+:?|[A-Z0-9\.\s-]+:)\s*([^\n]+)",
-            resp_text,
-            re.MULTILINE | re.IGNORECASE,
-        )
-        if topic_match:
-            clean_heading = topic_match.group(0).strip().lstrip("#").strip()
-            if 4 < len(clean_heading) < 90 and not clean_heading.lower().startswith("you said"):
-                return clean_heading
-
-        # 2. Look for prompt question text
+        """Extract a clean, human-readable section title from user prompt."""
         if prompt_msg and prompt_msg.plain_text.strip():
             raw_p = prompt_msg.plain_text.strip()
             for prefix in ("you said:", "you said", "user:", "prompt:", "q:", "question:"):
                 if raw_p.lower().startswith(prefix):
                     raw_p = raw_p[len(prefix):].strip()
-            normalized = " ".join(raw_p.split())
-            if normalized and len(normalized) <= 85 and not any(k in normalized.lower() for k in ("you are an expert", "system prompt")):
+            # Clean first line if multiline
+            first_line = raw_p.splitlines()[0].strip() if raw_p.splitlines() else raw_p
+            # Strip numeric bullets like 1. or 1)
+            first_line = re.sub(r"^\d+[\.\)]\s*", "", first_line).strip()
+            # Remove any leading markdown #
+            first_line = first_line.lstrip("#").strip()
+            normalized = " ".join(first_line.split())
+            if normalized and not any(k in normalized.lower() for k in ("you are an expert", "system prompt", "follow these rules strictly")):
+                if len(normalized) > 85:
+                    normalized = normalized[:82].rstrip() + "…"
                 return normalized[0].upper() + normalized[1:]
 
         return f"Topic {index}: Core Insights & Concepts"

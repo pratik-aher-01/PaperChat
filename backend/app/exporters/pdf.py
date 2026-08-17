@@ -39,15 +39,24 @@ class PdfExporter:
         html = _prepare_html_for_pdf(html)
         margin_dict = _margin_bounds(margin)
         paper_format = _format_name(page_format)
+        from app.acquisition.concurrency import acquire_browser_slot, release_browser_slot
+
+        if not acquire_browser_slot(timeout=45.0):
+            raise ExporterException("Server is experiencing high render load. Please retry in a few moments.")
+
         try:
             from playwright.sync_api import Error as PlaywrightError, sync_playwright
 
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--disable-dev-shm-usage", "--disable-gpu", "--no-sandbox"],
+                )
                 try:
                     page = browser.new_page()
+                    _setup_pdf_sandbox_routes(page)
                     page.emulate_media(media="print")
-                    page.set_content(html, wait_until="load")
+                    page.set_content(html, wait_until="domcontentloaded")
                     try:
                         page.evaluate(
                             """() => {
@@ -92,6 +101,31 @@ class PdfExporter:
             ) from exc
         except PlaywrightError as exc:
             raise ExporterException(f"PDF export failed: {exc}") from exc
+        finally:
+            release_browser_slot()
+
+
+def _setup_pdf_sandbox_routes(page: object) -> None:
+    """Block all external network access during PDF rendering for complete air-gapped isolation."""
+    def _route_handler(route: object) -> None:
+        try:
+            req_url = getattr(getattr(route, "request", None), "url", "")
+            # Allow data URIs (e.g. QR codes, inline images) and local file URIs
+            if req_url.startswith("data:") or req_url.startswith("file:"):
+                route.continue_()  # type: ignore
+                return
+            # Abort any external network outbound requests during PDF render
+            route.abort()  # type: ignore
+        except Exception:
+            try:
+                route.abort()  # type: ignore
+            except Exception:
+                pass
+
+    try:
+        page.route("**/*", _route_handler)  # type: ignore
+    except Exception:
+        pass
 
 
 def _prepare_html_for_pdf(html: str) -> str:

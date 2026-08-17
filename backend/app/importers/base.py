@@ -21,12 +21,20 @@ class BaseImporter(ABC):
 
     @staticmethod
     def _host_matches(url: str, allowed_hosts: set[str]) -> bool:
-        """Return whether the URL host matches an allowed host or subdomain."""
-        hostname = urlparse(url).hostname
+        """Return whether the URL host matches an allowed host or subdomain securely."""
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return False
+
+        if parsed.scheme.lower() not in {"http", "https"}:
+            return False
+
+        hostname = parsed.hostname
         if hostname is None:
             return False
 
-        normalized_host = hostname.lower()
+        normalized_host = hostname.lower().strip(".")
         return any(
             normalized_host == host or normalized_host.endswith(f".{host}")
             for host in allowed_hosts

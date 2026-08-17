@@ -46,7 +46,7 @@ class GenerateOptions(BaseModel):
 class GenerateRequest(BaseModel):
     """Request payload for one-call PDF generation."""
 
-    url: str = Field(min_length=1)
+    url: str = Field(min_length=1, max_length=2048)
     options: GenerateOptions = Field(default_factory=GenerateOptions)
 
 

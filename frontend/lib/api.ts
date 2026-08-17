@@ -60,15 +60,35 @@ function apiBaseUrl() {
 
 async function errorMessage(response: Response) {
   try {
-    const body = (await response.json()) as ApiErrorBody;
-    if (typeof body.detail === "string") {
-      return body.detail;
+    const body = (await response.json()) as ApiErrorBody & { code?: string; message?: string };
+    const code = (typeof body.detail === "object" ? body.detail?.code : body.code) ?? "";
+    const rawMsg = (typeof body.detail === "string" ? body.detail : body.detail?.message || body.message) ?? "";
+
+    if (code === "unsupported_platform") {
+      return "This URL is not recognized. Please use a public share link from ChatGPT, Claude, Gemini, or Perplexity.";
     }
-    if (body.detail?.message) {
-      return body.detail.message;
+    if (code === "fetch_failed" || rawMsg.toLowerCase().includes("blocked unsafe")) {
+      return "Could not access the shared chat. Please make sure the link is public and accessible.";
+    }
+    if (code === "rate_limited" || response.status === 429) {
+      return "You're sending requests too quickly. Please wait a moment before trying again.";
+    }
+    if (code === "parser_failed") {
+      return "Unable to parse this chat transcript. Please ensure the conversation contains visible messages.";
+    }
+
+    if (rawMsg) {
+      return rawMsg;
     }
   } catch {
     // Fall through to generic status text.
+  }
+
+  if (response.status === 429) {
+    return "Rate limit exceeded. Please wait a few moments and try again.";
+  }
+  if (response.status === 502) {
+    return "Could not fetch the chat link. Please make sure it is a valid, publicly accessible share URL.";
   }
 
   return response.statusText || "PaperChat could not generate the PDF.";

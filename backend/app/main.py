@@ -12,6 +12,7 @@ from app.api.importer import router as importer_router
 from app.api.renderer import router as renderer_router
 from app.api.routes import router as api_router
 from app.renderer.themes import ASSET_DIR
+from app.utils.rate_limiter import RateLimitMiddleware
 from config import API_DESCRIPTION, API_TITLE
 from logger import logger
 from settings import settings
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
         debug=settings.debug,
         lifespan=lifespan,
     )
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -42,6 +44,18 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["Content-Disposition"],
     )
+
+    @app.middleware("http")
+    async def add_security_headers(request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net data:; img-src 'self' data: https:; frame-ancestors 'self';"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+        return response
+
     app.mount("/static/render", StaticFiles(directory=ASSET_DIR), name="render-static")
     app.include_router(api_router)
     app.include_router(importer_router)

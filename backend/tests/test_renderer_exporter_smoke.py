@@ -283,6 +283,64 @@ def test_html_renderer_embeds_qr_code_and_open_link_on_cover() -> None:
     assert 'href="https://chatgpt.com/c/example"' in html
 
 
+def test_semantic_document_renderer_elements_and_callouts() -> None:
+    """Verify SemanticDocument renders CALLOUT, QUIZ, TAKEAWAYS, and code blocks correctly."""
+    from app.domain.enums import ConversationCategory, ExportProfile
+    from app.domain.semantic_document import (
+        DocumentElement,
+        DocumentMetadata,
+        DocumentSection,
+        ElementKind,
+        SemanticDocument,
+    )
+
+    doc = SemanticDocument(
+        metadata=DocumentMetadata(
+            title="Advanced ML Guide",
+            subtitle="Deep Learning Study Notes",
+            category=ConversationCategory.LEARNING,
+            profile=ExportProfile.STUDY_NOTES,
+            platform=Platform.CHATGPT,
+            source_url="https://chatgpt.com/share/ml",
+            total_sections=1,
+        ),
+        sections=[
+            DocumentSection(
+                id="sec-01",
+                title="Supervised vs Unsupervised",
+                kicker="Chapter 01",
+                elements=[
+                    DocumentElement(
+                        kind=ElementKind.CALLOUT,
+                        content="What is the difference between supervised and unsupervised learning?",
+                        metadata={"label": "User Query"},
+                    ),
+                    DocumentElement(
+                        kind=ElementKind.PARAGRAPH,
+                        content="### Key Distinctions\nSupervised uses labeled datasets.",
+                    ),
+                    DocumentElement(
+                        kind=ElementKind.QUIZ_ITEM,
+                        content="What is an example of unsupervised clustering?",
+                    ),
+                    DocumentElement(
+                        kind=ElementKind.KEY_TAKEAWAYS,
+                        content="Supervised predicts, unsupervised discovers patterns.",
+                    ),
+                ],
+            )
+        ],
+    )
+
+    html = HtmlRenderer().render_semantic_document(doc)
+
+    assert '<div class="callout callout-prompt">' in html
+    assert '<span class="callout-badge">User Query</span>' in html
+    assert "Supervised vs Unsupervised" in html
+    assert '<div class="quiz-box">' in html
+    assert '<blockquote class="key-takeaways">' in html
+
+
 if __name__ == "__main__":
     test_html_renderer_outputs_document()
     test_qr_generator_creates_valid_data_uri()

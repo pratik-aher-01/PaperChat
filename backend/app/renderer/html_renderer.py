@@ -144,6 +144,14 @@ class HtmlRenderer(BaseRenderer):
                 if elem.kind == ElementKind.CODE_BLOCK:
                     lang = elem.metadata.get("language", "")
                     sec_html_elements.append(_render_code_block(f"```{lang}\n{elem.content}\n```"))
+                elif elem.kind == ElementKind.CALLOUT:
+                    label = elem.metadata.get("label", "User Prompt")
+                    sec_html_elements.append(
+                        f'<div class="callout callout-prompt">'
+                        f'<span class="callout-badge">{escape(label)}</span>'
+                        f'{_markdown_to_html(elem.content)}'
+                        f'</div>'
+                    )
                 elif elem.kind == ElementKind.QUIZ_ITEM:
                     sec_html_elements.append(f'<div class="quiz-box"><strong>Quiz / Self-Assessment:</strong>{_markdown_to_html(elem.content)}</div>')
                 elif elem.kind == ElementKind.KEY_TAKEAWAYS:
@@ -466,10 +474,14 @@ def _render_inline(text: str) -> str:
     escaped = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", escaped)
     escaped = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", escaped)
     escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    escaped = re.sub(r"!\[([^\]]*)\]\(([^)]*)\)", r'<span class="image-ref">\1</span>', escaped)
+    def _safe_link(match: re.Match[str]) -> str:
+        link_text = match.group(1)
+        href_url = match.group(2)
+        return f'<a href="{escape(href_url, quote=True)}" target="_blank" rel="noopener noreferrer">{link_text}</a>'
+
     escaped = re.sub(
-        r"\[([^\]]+)\]\((https?://[^)]+)\)",
-        r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
+        r"\[([^\]]+)\]\((https?://[^\s\)\"\'>]+)\)",
+        _safe_link,
         escaped,
     )
 
@@ -558,56 +570,28 @@ def _is_user_message(message: Message) -> bool:
 
 
 def _toc_label(prompt: Message | str, all_messages: list[Message] | None = None) -> str:
-    """Extract a clean, catchy, structured topic title for the Table of Contents.
-
-    Cleans up boilerplate prefixes ("You said", "User:"), looks for explicit
-    topic headings in the paired response, and formats a human-readable title.
-    """
+    """Extract a clean, structured topic title for the Table of Contents directly from user prompt."""
     if isinstance(prompt, Message):
         raw_prompt = prompt.plain_text.strip()
-        prompt_id = prompt.id
     else:
         raw_prompt = str(prompt).strip()
-        prompt_id = ""
 
-    # Step 1: Check for explicit topic heading in the paired assistant response
-    if all_messages and prompt_id:
-        try:
-            idx = next(i for i, m in enumerate(all_messages) if m.id == prompt_id)
-            if idx + 1 < len(all_messages) and str(all_messages[idx + 1].role).lower() == "assistant":
-                resp_text = all_messages[idx + 1].plain_text.strip()
-                topic_match = re.search(
-                    r"^(?:#{1,4}\s+)?(?:Topic\s+\d+:?|Section\s+\d+:?|[A-Z0-9\.\s-]+:)\s*([^\n]+)",
-                    resp_text,
-                    re.MULTILINE | re.IGNORECASE,
-                )
-                if topic_match:
-                    clean_match = topic_match.group(0).strip().lstrip("#").strip()
-                    if 4 < len(clean_match) < 90 and not clean_match.lower().startswith("you said"):
-                        return clean_match
-        except (StopIteration, ValueError):
-            pass
-
-    # Step 2: Strip out "You said", "You said:", "User:", "Prompt:" prefixes
+    # Step 1: Strip out "You said", "You said:", "User:", "Prompt:" prefixes
     cleaned = raw_prompt
     for prefix in ("you said:", "you said", "user:", "prompt:", "q:", "question:"):
         if cleaned.lower().startswith(prefix):
             cleaned = cleaned[len(prefix):].strip()
 
-    # Step 3: Handle system setup/prompt boilerplate
+    # Step 2: Handle system setup/prompt boilerplate
     if any(phrase in cleaned.lower() for phrase in ("you are an expert", "system prompt", "follow these rules strictly", "syllabus topics")):
-        return "Topic 1: Course Setup & Syllabus Overview"
+        return "Course Setup & Syllabus Overview"
 
-    # Step 4: Format numeric responses like "1. ratio because... 2. ordinal..."
-    if re.match(r"^\d+[\.\)]\s+", cleaned):
-        first_line = cleaned.splitlines()[0]
-        first_line = re.sub(r"^\d+[\.\)]\s*", "", first_line).strip()
-        if len(first_line) > 75:
-            first_line = first_line[:72].rstrip() + "…"
-        if first_line:
-            return f"Topic: {first_line}"
+    # Step 3: Format numeric responses or multiline prompts
+    first_line = cleaned.splitlines()[0].strip() if cleaned.splitlines() else cleaned
+    first_line = re.sub(r"^\d+[\.\)]\s*", "", first_line).strip()
+    first_line = first_line.lstrip("#").strip()
 
-    normalized = " ".join(cleaned.split())
+    normalized = " ".join(first_line.split())
     if not normalized:
         return "Untitled topic"
     label = normalized[0].upper() + normalized[1:]

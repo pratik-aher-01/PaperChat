@@ -9,7 +9,9 @@ from typing import Any
 from playwright.sync_api import Error as PlaywrightError, Page, sync_playwright
 
 from app.acquisition.base import BaseFetcher
+from app.acquisition.concurrency import acquire_browser_slot, release_browser_slot
 from app.domain.fetch_result import FetchResult
+from app.utils.security import is_safe_url
 from exceptions import AcquisitionException
 
 
@@ -26,12 +28,22 @@ class BrowserFetcher(BaseFetcher):
 
     def _fetch_sync(self, url: str) -> FetchResult:
         """Fetch fully rendered HTML in a worker thread."""
+        if not is_safe_url(url):
+            raise AcquisitionException(f"Blocked unsafe or invalid URL: {url}")
+
+        if not acquire_browser_slot(timeout=45.0):
+            raise AcquisitionException("Server is experiencing high render load. Please retry in a few moments.")
+
         started_at = perf_counter()
         try:
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch(headless=True)
+                browser = playwright.chromium.launch(
+                    headless=True,
+                    args=["--disable-dev-shm-usage", "--disable-gpu", "--no-sandbox"],
+                )
                 try:
                     page = browser.new_page()
+                    _setup_security_routes(page)
                     response = page.goto(
                         url,
                         wait_until="domcontentloaded",
@@ -62,6 +74,29 @@ class BrowserFetcher(BaseFetcher):
                     browser.close()
         except PlaywrightError as exc:
             raise AcquisitionException(f"Browser acquisition failed: {exc}") from exc
+        finally:
+            release_browser_slot()
+
+
+def _setup_security_routes(page: Page) -> None:
+    """Intercept all sub-resource requests and abort unsafe or private IP destinations."""
+    def _route_handler(route: Any) -> None:
+        try:
+            req_url = route.request.url
+            if req_url.startswith("data:image/") or req_url.startswith("data:font/"):
+                route.continue_()
+                return
+            if not is_safe_url(req_url):
+                route.abort()
+                return
+            route.continue_()
+        except Exception:
+            route.abort()
+
+    try:
+        page.route("**/*", _route_handler)
+    except Exception:
+        pass
 
 
 def _elapsed_ms(started_at: float) -> int:

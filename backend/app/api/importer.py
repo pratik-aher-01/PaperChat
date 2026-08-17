@@ -18,6 +18,7 @@ from app.parsers.registry import ParserRegistry, create_default_parser_registry
 from app.services.conversation_normalizer import ConversationNormalizer
 from exceptions import AcquisitionException, ParserException
 from logger import logger
+from settings import settings
 
 router = APIRouter(prefix="/api/import", tags=["import"])
 DEBUG_HTML_PATH = Path(__file__).resolve().parents[2] / "debug" / "chat.html"
@@ -26,7 +27,7 @@ DEBUG_HTML_PATH = Path(__file__).resolve().parents[2] / "debug" / "chat.html"
 class ImportDetectRequest(BaseModel):
     """Request payload for import platform detection."""
 
-    url: str = Field(min_length=1)
+    url: str = Field(min_length=1, max_length=2048)
 
 
 class ImportDetectResponse(BaseModel):
@@ -238,7 +239,9 @@ def _supported_response(importer: BaseImporter) -> ImportDetectResponse:
 
 
 def _save_debug_html(result: FetchResult) -> None:
-    """Save fetched HTML for local debugging."""
+    """Save fetched HTML for local debugging only when debug mode is enabled."""
+    if not settings.debug:
+        return
     try:
         DEBUG_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)
         DEBUG_HTML_PATH.write_text(result.html, encoding="utf-8")

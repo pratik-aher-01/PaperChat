@@ -261,15 +261,17 @@ def _walk_json_payloads(text: str) -> Iterable[object]:
             start = idx + 1
 
 
-def _walk_obj(obj: object) -> Iterable[object]:
-    """Recursively walk JSON structures."""
+def _walk_obj(obj: object, depth: int = 0, max_depth: int = 25) -> Iterable[object]:
+    """Recursively walk JSON structures with recursion depth limit."""
+    if depth > max_depth:
+        return
     yield obj
     if isinstance(obj, dict):
         for v in obj.values():
-            yield from _walk_obj(v)
+            yield from _walk_obj(v, depth + 1, max_depth)
     elif isinstance(obj, list):
         for elem in obj:
-            yield from _walk_obj(elem)
+            yield from _walk_obj(elem, depth + 1, max_depth)
 
 
 def _node_to_markdown(node: Tag) -> str:

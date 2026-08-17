@@ -53,9 +53,15 @@ export default function PreviewPage() {
           onZoomOut={() => setZoom((value) => Math.max(60, value - 10))}
           onRegenerate={() => router.push("/processing")}
           onDownload={() => {
+            const safeFilename =
+              document.filename
+                .replace(/[^a-zA-Z0-9_\-\.\s]/g, "")
+                .replace(/\.{2,}/g, ".")
+                .trim() || "paperchat-document.pdf";
             const link = window.document.createElement("a");
             link.href = document.objectUrl;
-            link.download = document.filename;
+            link.download = safeFilename.endsWith(".pdf") ? safeFilename : `${safeFilename}.pdf`;
+            link.rel = "noopener noreferrer";
             link.click();
           }}
           onFullscreen={() => {

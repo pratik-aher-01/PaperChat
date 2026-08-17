@@ -21,27 +21,27 @@ router = APIRouter(prefix="/api/render", tags=["render"])
 class ContentBlockInput(BaseModel):
     """API input for a message content block."""
 
-    type: str = "markdown"
-    text: str
+    type: str = Field(default="markdown", max_length=64)
+    text: str = Field(max_length=500_000)
 
 
 class MessageInput(BaseModel):
     """API input for a conversation message."""
 
-    id: str
-    role: str
-    plain_text: str
-    content_blocks: list[ContentBlockInput] = Field(default_factory=list)
+    id: str = Field(max_length=128)
+    role: str = Field(max_length=64)
+    plain_text: str = Field(max_length=1_000_000)
+    content_blocks: list[ContentBlockInput] = Field(default_factory=list, max_length=100)
 
 
 class ConversationMetadataInput(BaseModel):
     """API input for conversation metadata."""
 
-    source_url: str = ""
-    final_url: str = ""
-    title: str = ""
-    raw_html: str = ""
-    fetch_time_ms: int = 0
+    source_url: str = Field(default="", max_length=2048)
+    final_url: str = Field(default="", max_length=2048)
+    title: str = Field(default="", max_length=500)
+    raw_html: str = Field(default="", max_length=10_000_000)
+    fetch_time_ms: int = Field(default=0, ge=0)
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -49,10 +49,10 @@ class ConversationInput(BaseModel):
     """API input for a normalized conversation."""
 
     platform: Platform
-    title: str
-    messages: list[MessageInput]
+    title: str = Field(max_length=500)
+    messages: list[MessageInput] = Field(min_length=1, max_length=2000)
     metadata: ConversationMetadataInput = Field(default_factory=ConversationMetadataInput)
-    raw_html: str = ""
+    raw_html: str = Field(default="", max_length=10_000_000)
     options: dict[str, Any] = Field(default_factory=dict)
 
 

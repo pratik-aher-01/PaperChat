@@ -29,17 +29,16 @@ class LearningSessionStrategy(BaseDocumentStrategy):
         """Compile a learning conversation into a structured study guide / book."""
         title = conversation.title or "Study Guide & Course Material"
         sections: list[DocumentSection] = []
-
-        messages = list(conversation.messages)
-        assistant_turns = [m for m in messages if str(m.role).lower() == "assistant"]
-
-        sec_offset = 1
-        for assistant_msg in assistant_turns:
-            a_idx = messages.index(assistant_msg)
-            prompt_msg = messages[a_idx - 1] if a_idx > 0 and str(messages[a_idx - 1].role).lower() == "user" else None
-            sub_secs = self._turn_to_sections(sec_offset, prompt_msg, assistant_msg, messages, kicker_prefix="Chapter")
-            sections.extend(sub_secs)
-            sec_offset += len(sub_secs)
+        last_user_msg: Message | None = None
+        turn_idx = 1
+        for msg in conversation.messages:
+            if str(msg.role).lower() == "user":
+                last_user_msg = msg
+            elif str(msg.role).lower() == "assistant":
+                sec = self._turn_to_section(turn_idx, last_user_msg, msg, list(conversation.messages), kicker_prefix="Chapter")
+                sections.append(sec)
+                turn_idx += 1
+                last_user_msg = None
 
         metadata = DocumentMetadata(
             title=title,

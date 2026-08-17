@@ -19,8 +19,10 @@ export function PdfPreview({
         className="aspect-[8.5/11] shrink-0 overflow-hidden rounded-sm bg-[#F5F4F0] shadow-[0_35px_100px_rgba(0,0,0,0.45)] transition-[width] duration-200"
       >
         <iframe
-          title="Generated PaperChat PDF"
+          title="Generated PaperChat PDF Preview"
           src={`${pdfUrl}#toolbar=0&navpanes=0`}
+          sandbox="allow-scripts allow-same-origin allow-downloads"
+          referrerPolicy="no-referrer"
           className="h-full w-full border-0 bg-white"
         />
       </motion.div>
