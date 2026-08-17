@@ -218,7 +218,7 @@ def _child_to_markdown(node: Tag | NavigableString, list_depth: int) -> str:
 
 
 def _inline_text(node: Tag) -> str:
-    """Extract inline text from a node while preserving inline code and links."""
+    """Extract inline text from a node while preserving inline formatting, code, links, and math."""
     parts: list[str] = []
     for child in node.children:
         if isinstance(child, NavigableString):
@@ -230,31 +230,43 @@ def _inline_text(node: Tag) -> str:
 
             math = _extract_latex_math(child)
             if math is not None:
-                parts.append(math)
+                parts.append(f" {math} ")
                 continue
 
             name = child.name.lower()
-            if name == "code":
-                parts.append(f"`{child.get_text()}`")
+            if name in {"strong", "b"}:
+                parts.append(f" **{_inline_text(child).strip()}** ")
+            elif name in {"em", "i"}:
+                parts.append(f" *{_inline_text(child).strip()}* ")
+            elif name in {"del", "s", "strike"}:
+                parts.append(f" ~~{_inline_text(child).strip()}~~ ")
+            elif name == "code":
+                parts.append(f" `{child.get_text()}` ")
             elif name == "br":
                 parts.append("\n")
             elif name == "a":
-                label = _inline_text(child)
+                label = _inline_text(child).strip()
                 href = child.get("href")
                 if isinstance(href, str) and href.strip() and label:
-                    parts.append(f"[{label}]({href.strip()})")
+                    parts.append(f" [{label}]({href.strip()}) ")
                 else:
-                    parts.append(label)
+                    parts.append(f" {label} ")
+            elif name == "img":
+                alt = child.get("alt", "Image")
+                src = child.get("src", "")
+                parts.append(f"\n\n![{alt}]({src})\n\n")
+            elif name == "hr":
+                parts.append("\n\n---\n\n")
             else:
                 parts.append(_inline_text(child))
-    return " ".join("".join(parts).split())
+    return " ".join(" ".join(parts).split())
 
 
 def _code_block(node: Tag) -> str:
-    """Convert a preformatted block to fenced markdown."""
+    """Convert a preformatted block to fenced markdown without corrupting tokens with newlines."""
     code = node.find("code")
     language = _language_from_code(code) if isinstance(code, Tag) else ""
-    text = code.get_text("\n") if isinstance(code, Tag) else node.get_text("\n")
+    text = code.get_text() if isinstance(code, Tag) else node.get_text()
     return f"```{language}\n{text.strip()}\n```"
 
 

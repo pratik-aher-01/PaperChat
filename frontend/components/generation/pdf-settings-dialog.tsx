@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, RotateCcw, Settings, X } from "lucide-react";
+import { Check, Maximize2, RotateCcw, Settings, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PdfSettings } from "@/types/chat";
 
@@ -76,13 +76,22 @@ export function PdfSettingsDialog({ settings, onChange }: PdfSettingsDialogProps
                 <h2 className="text-base font-semibold text-white">PDF Generation Settings</h2>
                 <p className="text-[11px] text-zinc-400">Configure page layout, typography, and styling prior to PDF export.</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsOpen(false)}
-                className="rounded-lg p-1 text-zinc-400 transition hover:bg-white/10 hover:text-white"
-              >
-                <X className="size-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <a
+                  href="/settings"
+                  className="inline-flex items-center gap-1 rounded-md border border-white/15 bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/20"
+                >
+                  <Maximize2 className="size-3" />
+                  Full Preview
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="rounded-lg p-1 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
             </div>
 
             {/* Compact Non-Scrolling Content Grid */}

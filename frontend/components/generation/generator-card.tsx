@@ -1,14 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useGenerate } from "@/hooks/use-generate";
+import { readPdfSettings, writePdfSettings } from "@/lib/generated-document";
 import { cn } from "@/lib/utils";
-import type { InputMode, ProviderId } from "@/types/chat";
+import type { InputMode, PdfSettings, ProviderId } from "@/types/chat";
 
 import { DEFAULT_PDF_SETTINGS, PdfSettingsDialog } from "./pdf-settings-dialog";
 import { ProviderMark } from "./provider-mark";
@@ -25,8 +26,20 @@ export function GeneratorCard() {
   const [provider, setProvider] = useState<ProviderId>("chatgpt");
   const [link, setLink] = useState("");
   const [rawText, setRawText] = useState("");
-  const [pdfSettings, setPdfSettings] = useState(DEFAULT_PDF_SETTINGS);
+  const [pdfSettings, setPdfSettings] = useState<PdfSettings>(DEFAULT_PDF_SETTINGS);
   const { error, isSubmitting, submit } = useGenerate();
+
+  useEffect(() => {
+    const saved = readPdfSettings();
+    if (saved) {
+      setPdfSettings(saved);
+    }
+  }, []);
+
+  const handleSettingsChange = (newSettings: PdfSettings) => {
+    setPdfSettings(newSettings);
+    writePdfSettings(newSettings);
+  };
 
   return (
     <form
@@ -58,7 +71,7 @@ export function GeneratorCard() {
           ))}
         </div>
 
-        <PdfSettingsDialog settings={pdfSettings} onChange={setPdfSettings} />
+        <PdfSettingsDialog settings={pdfSettings} onChange={handleSettingsChange} />
       </div>
 
       <AnimatePresence mode="wait">

@@ -38,7 +38,7 @@
       <!-- Main content -->
       <div class="cover-body">
         <div class="cover-title-group">
-          <h1 class="cover-title">{{ title }}</h1>
+          <h1 class="cover-title cover-title-{{ platform_token }}">{{ title }}</h1>
           <p class="cover-subtitle">{{ subtitle }}</p>
         </div>
 
@@ -93,7 +93,6 @@
     </section>
 
     <section class="conversation" aria-label="Document body">
-      <div class="section-kicker">Main Document</div>
       {{ body }}
     </section>
   </main>

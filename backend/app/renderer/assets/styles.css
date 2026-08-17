@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Lexend:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@700;800&family=Rubik+Mono+One&family=Chakra+Petch:wght@700&family=Instrument+Serif:ital@0;1&family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Lexend:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap');
 
 :root {
   --paper: #ffffff;
@@ -92,8 +92,10 @@ a:hover {
 }
 
 .cover-page .cover-title {
-  font-size: 44px !important;
-  line-height: 1.12 !important;
+  font-family: "Space Grotesk", "Rubik Mono One", "Chakra Petch", "Instrument Serif", Georgia, sans-serif !important;
+  font-size: 42px !important;
+  line-height: 1.1 !important;
+  text-transform: uppercase !important;
 }
 
 .cover-page .cover-subtitle {
@@ -208,12 +210,33 @@ a:hover {
 .cover-title {
   margin: 0;
   max-width: 95%;
-  font-family: Georgia, "Times New Roman", Times, serif;
-  font-size: 44px;
-  line-height: 1.12;
-  font-weight: 700;
+  font-family: "Space Grotesk", "Rubik Mono One", "Chakra Petch", "Instrument Serif", Georgia, sans-serif;
+  font-size: 42px;
+  line-height: 1.1;
+  font-weight: 800;
   letter-spacing: -0.02em;
-  color: #111827 !important;
+  text-transform: uppercase;
+}
+
+/* Dynamic platform-matching title colors */
+.cover-title-chatgpt,
+.platform-chatgpt .cover-title {
+  color: #0284c7 !important; /* Skyblue cloud matching ChatGPT */
+}
+
+.cover-title-claude,
+.platform-claude .cover-title {
+  color: #da7756 !important; /* Terracotta orange matching Claude Code reference image */
+}
+
+.cover-title-gemini,
+.platform-gemini .cover-title {
+  color: #1a73e8 !important; /* Gemini blue */
+}
+
+.cover-title-perplexity,
+.platform-perplexity .cover-title {
+  color: #0d9488 !important; /* Perplexity teal */
 }
 
 .cover-subtitle {
@@ -355,7 +378,9 @@ a:hover {
 }
 
 .front-matter {
-  break-after: page;
+  break-after: auto;
+  page-break-after: auto;
+  margin-bottom: 24px;
 }
 
 .metadata-card {
@@ -552,6 +577,18 @@ a:hover {
   max-width: none;
 }
 
+.layout-two-column .code-block {
+  column-span: all;
+  -webkit-column-span: all;
+  width: 100%;
+  margin: 18px 0;
+}
+
+.layout-two-column .code-block pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .layout-auto .message-content {
   max-width: none;
   column-gap: 32px;
@@ -665,13 +702,18 @@ code {
 }
 
 .code-block {
-  margin: 24px 0;
+  margin: 20px 0;
   border: 1px solid var(--code-rule);
   border-radius: var(--radius);
   background: var(--code-bg);
   color: var(--code-ink);
-  overflow: hidden;
+  overflow-x: auto;
   break-inside: avoid;
+  page-break-inside: avoid;
+  column-span: all;
+  -webkit-column-span: all;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .code-block figcaption {
@@ -686,10 +728,15 @@ code {
 
 .code-block pre {
   margin: 0;
-  padding: 18px 20px;
+  padding: 16px 20px;
   overflow-x: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: pre;
+  word-break: normal;
+  word-wrap: normal;
+  overflow-wrap: normal;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 .code-block code {
@@ -699,6 +746,78 @@ code {
   color: inherit;
   font-size: 13px;
   line-height: 1.65;
+}
+
+del, s, strike {
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: underline;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+hr, .page-break {
+  border: none;
+  border-top: 1.5px dashed var(--rule);
+  margin: 28px 0;
+  clear: both;
+}
+
+.mermaid-block {
+  margin: 24px 0;
+  padding: 16px 20px;
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--soft);
+  break-inside: avoid;
+}
+
+.mermaid-block figcaption {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+
+.mermaid-code pre {
+  margin: 0;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.document-image-card {
+  margin: 24px 0;
+  padding: 24px;
+  border: 2px dashed var(--rule);
+  border-radius: var(--radius);
+  text-align: center;
+  background: var(--soft);
+  break-inside: avoid;
+}
+
+.image-placeholder-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.math-block {
+  margin: 20px 0;
+  padding: 16px 20px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--soft);
+  text-align: center;
+  font-size: 16px;
+  font-family: "KaTeX_Main", "Times New Roman", serif;
+  break-inside: avoid;
 }
 
 .code-block .highlight {

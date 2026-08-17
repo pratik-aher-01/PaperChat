@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from app.domain.conversation import Conversation
 from app.domain.message import Message
+from app.domain.semantic_document import DocumentElement, ElementKind, SemanticDocument
 from app.renderer.base import BaseRenderer
 from app.renderer.components import render_section, render_toc_prompt_item
 from app.renderer.qr_generator import generate_qr_data_uri
@@ -72,7 +73,7 @@ class HtmlRenderer(BaseRenderer):
             if source_url
             else ""
         )
-        toc = self._render_toc(prompts)
+        toc = self._render_toc(conversation, prompts)
         summary_line = self._render_summary_line(conversation, len(prompts), generated_date)
 
         layout_classes = [
@@ -112,6 +113,95 @@ class HtmlRenderer(BaseRenderer):
             },
         )
 
+    def render_semantic_document(self, doc: SemanticDocument) -> str:
+        """Render a SemanticDocument into published HTML."""
+        generated_date = doc.metadata.generated_date or datetime.now().strftime("%d %B %Y")
+        source_url = doc.metadata.source_url
+        source_url_short = _shorten_url(source_url)
+        qr_code_data_uri = generate_qr_data_uri(source_url) if source_url else ""
+        qr_code_html = (
+            f'<div class="qr-placeholder"><img src="{qr_code_data_uri}" alt="QR code" /></div>'
+            if qr_code_data_uri
+            else ""
+        )
+        source_url_link_html = (
+            f'<a href="{escape(source_url)}" class="source-card-link" target="_blank" rel="noopener noreferrer">Open Original Link ↗</a>'
+            if source_url
+            else ""
+        )
+
+        # Build TOC from SDM sections
+        toc_items = []
+        for idx, sec in enumerate(doc.sections, start=1):
+            toc_items.append(render_toc_prompt_item(idx, sec.title, sec.id))
+        toc_html = f'<ol class="toc-list">{"".join(toc_items)}</ol>' if toc_items else '<p class="toc-empty">No sections available.</p>'
+
+        # Build body sections
+        body_parts = []
+        for idx, sec in enumerate(doc.sections, start=1):
+            sec_html_elements = []
+            for elem in sec.elements:
+                if elem.kind == ElementKind.CODE_BLOCK:
+                    lang = elem.metadata.get("language", "")
+                    sec_html_elements.append(_render_code_block(f"```{lang}\n{elem.content}\n```"))
+                elif elem.kind == ElementKind.QUIZ_ITEM:
+                    sec_html_elements.append(f'<div class="quiz-box"><strong>Quiz / Self-Assessment:</strong>{_markdown_to_html(elem.content)}</div>')
+                elif elem.kind == ElementKind.KEY_TAKEAWAYS:
+                    sec_html_elements.append(f'<blockquote class="key-takeaways"><strong>Key Takeaways:</strong>{_markdown_to_html(elem.content)}</blockquote>')
+                else:
+                    sec_html_elements.append(_markdown_to_html(elem.content))
+
+            sec_content = "\n".join(sec_html_elements)
+            body_parts.append(
+                render_section(
+                    section_id=sec.id,
+                    label=sec.kicker or f"Section {idx:02d}",
+                    index=idx,
+                    role="assistant",
+                    content=f"<h2>{escape(sec.title)}</h2>\n{sec_content}",
+                )
+            )
+
+        body_html = "\n".join(body_parts)
+
+        effective_theme = doc.theme or self._theme
+        layout_classes = [
+            f"layout-{self._layout}",
+            f"font-{self._font_family}",
+            f"size-{self._font_size}",
+            f"spacing-{self._line_spacing}",
+            f"theme-{effective_theme}",
+        ]
+        if not doc.show_cover:
+            layout_classes.append("no-cover")
+
+        page_size_str = "letter portrait" if self._page_format == "LETTER" else ("legal portrait" if self._page_format == "LEGAL" else "A4 portrait")
+        page_margin_str = "10mm 10mm 12mm 10mm" if self._margin == "narrow" else ("28mm 24mm 32mm 24mm" if self._margin == "wide" else "18mm 16mm 22mm 16mm")
+
+        return self._template_engine.render(
+            DEFAULT_TEMPLATE,
+            {
+                "title": escape(doc.metadata.title or "Compiled Knowledge Document"),
+                "subtitle": escape(doc.metadata.subtitle or "Intelligent Conversation Compiler Document"),
+                "stylesheet_url": DEFAULT_STYLESHEET_URL,
+                "platform": escape(_display_platform(str(doc.metadata.platform))),
+                "platform_token": escape(_class_token(str(doc.metadata.platform))),
+                "generated_date": escape(generated_date),
+                "question_count_str": f"{len(doc.sections)} sections",
+                "source_url": escape(source_url),
+                "source_url_short": escape(source_url_short),
+                "qr_code_data_uri": qr_code_data_uri,
+                "qr_code_html": qr_code_html,
+                "source_url_link_html": source_url_link_html,
+                "layout_class": " ".join(layout_classes),
+                "page_size": page_size_str,
+                "page_margin": page_margin_str,
+                "summary_line": escape(f"{_display_platform(str(doc.metadata.platform))} · {len(doc.sections)} sections · {generated_date}"),
+                "toc": toc_html,
+                "body": body_html,
+            },
+        )
+
     def _render_summary_line(self, conversation: Conversation, prompt_count: int, generated_date: str) -> str:
         """Render the single fixed summary line shown on the cover of every PDF.
 
@@ -135,19 +225,12 @@ class HtmlRenderer(BaseRenderer):
             content=content,
         )
 
-    def _render_toc(self, prompts: list[Message]) -> str:
-        """Render a table of contents built from the user's own prompts, in order.
-
-        Rather than pulling every markdown heading out of the model's
-        responses (which produced hundreds of noisy sub-entries), the TOC
-        is now exactly what the person actually asked: one numbered entry
-        per prompt, in the order it was sent, linking to that prompt's
-        section in the body.
-        """
+    def _render_toc(self, conversation: Conversation, prompts: list[Message]) -> str:
+        """Render a table of contents built from prompt/response topic headings in order."""
         if not prompts:
             return '<p class="toc-empty">No prompts were detected in this conversation.</p>'
         items = "\n".join(
-            render_toc_prompt_item(index, _toc_label(message.plain_text), message.id)
+            render_toc_prompt_item(index, _toc_label(message, conversation.messages), message.id)
             for index, message in enumerate(prompts, start=1)
         )
         return f'<ol class="toc-list">{items}</ol>'
@@ -216,10 +299,17 @@ def _is_math_block(block: str) -> bool:
 
 
 def _render_code_block(block: str) -> str:
-    """Render fenced code."""
+    """Render fenced code or Mermaid flowchart."""
     lines = block.splitlines()
     language = lines[0].removeprefix("```").strip()
     code = "\n".join(lines[1:-1] if len(lines) > 1 else [])
+    if language.lower() in {"mermaid", "flowchart", "diagram"}:
+        return (
+            '<figure class="mermaid-block">'
+            '<figcaption>Mermaid Flowchart / Diagram</figcaption>'
+            f'<div class="mermaid-code"><pre><code>{escape(code)}</code></pre></div>'
+            '</figure>'
+        )
     language_token = _class_token(language) if language else ""
     language_class = f" language-{language_token}" if language_token else ""
     label_text = language or "code"
@@ -251,9 +341,7 @@ def _highlight_code(code: str, language: str) -> str:
 
 
 def _render_heading(block: str) -> str:
-    """Render a heading. No longer registered anywhere for the TOC -
-    the TOC is prompt-driven now - but the anchor id is kept so in-body
-    deep links still work."""
+    """Render a heading."""
     marker, text = block.split(" ", 1)
     level = min(len(marker), 4)
     anchor = _anchor(text)
@@ -332,15 +420,17 @@ def _render_blockquote(block: str) -> str:
 
 def _render_image(block: str) -> str:
     """Render image markdown with placeholder support."""
-    match = re.match(r"!\[(?P<alt>[^\]]*)\]\((?P<src>[^)]+)\)", block)
+    match = re.match(r"!\[(?P<alt>[^\]]*)\]\((?P<src>[^)]*)\)", block)
     if not match:
-        return '<figure class="image-placeholder"><span>Image placeholder</span></figure>'
-    alt = match.group("alt")
+        return '<figure class="document-image-card"><div class="image-placeholder-icon">🖼️</div><figcaption>Image Card</figcaption></figure>'
+    alt = match.group("alt") or "Image"
     src = match.group("src")
+    if not src or "placeholder" in src:
+        return f'<figure class="document-image-card"><div class="image-placeholder-icon">🖼️</div><figcaption>{escape(alt)}</figcaption></figure>'
     return (
         '<figure class="document-image">'
         f'<img src="{escape(src, quote=True)}" alt="{escape(alt, quote=True)}" />'
-        f"<figcaption>{escape(alt) or 'Image'}</figcaption></figure>"
+        f"<figcaption>{escape(alt)}</figcaption></figure>"
     )
 
 
@@ -374,11 +464,12 @@ def _render_inline(text: str) -> str:
     escaped = escape(processed)
     escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", escaped)
+    escaped = re.sub(r"~~([^~]+)~~", r"<del>\1</del>", escaped)
     escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-    escaped = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<span class="image-ref">\1</span>', escaped)
+    escaped = re.sub(r"!\[([^\]]*)\]\(([^)]*)\)", r'<span class="image-ref">\1</span>', escaped)
     escaped = re.sub(
         r"\[([^\]]+)\]\((https?://[^)]+)\)",
-        r'<a href="\2">\1</a>',
+        r'<a href="\2" target="_blank" rel="noopener noreferrer">\1</a>',
         escaped,
     )
 
@@ -466,19 +557,62 @@ def _is_user_message(message: Message) -> bool:
     return str(message.role).lower() == "user"
 
 
-def _toc_label(prompt_text: str) -> str:
-    """Turn a raw user prompt into a short, clean TOC label.
+def _toc_label(prompt: Message | str, all_messages: list[Message] | None = None) -> str:
+    """Extract a clean, catchy, structured topic title for the Table of Contents.
 
-    Uses exactly what was typed - collapsed to one line and capped in
-    length - rather than trying to infer a "nicer" topic title. Keeps the
-    TOC honest to what was actually asked, including messy or meta prompts.
+    Cleans up boilerplate prefixes ("You said", "User:"), looks for explicit
+    topic headings in the paired response, and formats a human-readable title.
     """
-    normalized = " ".join(prompt_text.strip().split())
+    if isinstance(prompt, Message):
+        raw_prompt = prompt.plain_text.strip()
+        prompt_id = prompt.id
+    else:
+        raw_prompt = str(prompt).strip()
+        prompt_id = ""
+
+    # Step 1: Check for explicit topic heading in the paired assistant response
+    if all_messages and prompt_id:
+        try:
+            idx = next(i for i, m in enumerate(all_messages) if m.id == prompt_id)
+            if idx + 1 < len(all_messages) and str(all_messages[idx + 1].role).lower() == "assistant":
+                resp_text = all_messages[idx + 1].plain_text.strip()
+                topic_match = re.search(
+                    r"^(?:#{1,4}\s+)?(?:Topic\s+\d+:?|Section\s+\d+:?|[A-Z0-9\.\s-]+:)\s*([^\n]+)",
+                    resp_text,
+                    re.MULTILINE | re.IGNORECASE,
+                )
+                if topic_match:
+                    clean_match = topic_match.group(0).strip().lstrip("#").strip()
+                    if 4 < len(clean_match) < 90 and not clean_match.lower().startswith("you said"):
+                        return clean_match
+        except (StopIteration, ValueError):
+            pass
+
+    # Step 2: Strip out "You said", "You said:", "User:", "Prompt:" prefixes
+    cleaned = raw_prompt
+    for prefix in ("you said:", "you said", "user:", "prompt:", "q:", "question:"):
+        if cleaned.lower().startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+
+    # Step 3: Handle system setup/prompt boilerplate
+    if any(phrase in cleaned.lower() for phrase in ("you are an expert", "system prompt", "follow these rules strictly", "syllabus topics")):
+        return "Topic 1: Course Setup & Syllabus Overview"
+
+    # Step 4: Format numeric responses like "1. ratio because... 2. ordinal..."
+    if re.match(r"^\d+[\.\)]\s+", cleaned):
+        first_line = cleaned.splitlines()[0]
+        first_line = re.sub(r"^\d+[\.\)]\s*", "", first_line).strip()
+        if len(first_line) > 75:
+            first_line = first_line[:72].rstrip() + "…"
+        if first_line:
+            return f"Topic: {first_line}"
+
+    normalized = " ".join(cleaned.split())
     if not normalized:
-        return "Untitled prompt"
+        return "Untitled topic"
     label = normalized[0].upper() + normalized[1:]
-    if len(label) > 90:
-        label = label[:87].rstrip() + "…"
+    if len(label) > 85:
+        label = label[:82].rstrip() + "…"
     return label
 
 

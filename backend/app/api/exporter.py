@@ -14,10 +14,12 @@ from app.api.importer import (
 )
 from app.api.renderer import ConversationInput, conversation_from_input, get_html_renderer
 from app.domain.conversation import Conversation
+from app.domain.enums import ExportProfile
 from app.exporters.pdf import PdfExporter
 from app.importers.factory import ImporterFactory
 from app.parsers.factory import ParserFactory
 from app.renderer.html_renderer import HtmlRenderer
+from app.services.compiler import ConversationCompiler
 from app.services.conversation_normalizer import ConversationNormalizer
 from exceptions import AcquisitionException, ExporterException, ParserException, RendererException
 from logger import logger
@@ -37,6 +39,8 @@ class GenerateOptions(BaseModel):
     theme: str = "default"
     show_cover: bool = True
     show_headers: bool = True
+    profile: str = "auto"
+    clean_fluff: bool = True
 
 
 class GenerateRequest(BaseModel):
@@ -103,7 +107,7 @@ async def generate_pdf(
     renderer: Annotated[HtmlRenderer, Depends(get_html_renderer)],
     exporter: Annotated[PdfExporter, Depends(get_pdf_exporter)],
 ) -> Response:
-    """Run the complete share-link to PDF pipeline."""
+    """Run the complete share-link to PDF pipeline using PaperChat v2 Intelligent Compiler."""
     try:
         conversation = await _conversation_from_url(
             url=payload.url,
@@ -113,17 +117,27 @@ async def generate_pdf(
             normalizer=normalizer,
         )
         opts = payload.options
+
+        # PaperChat v2 Compilation
+        profile_override = ExportProfile(opts.profile) if opts.profile in [p.value for p in ExportProfile] else ExportProfile.AUTO
+        compiler = ConversationCompiler()
+        semantic_doc = compiler.compile(
+            conversation,
+            profile_override=profile_override,
+            clean_fluff=opts.clean_fluff,
+        )
+
         custom_renderer = HtmlRenderer(
             layout=opts.layout,
             font_family=opts.font_family,
             font_size=opts.font_size,
             line_spacing=opts.line_spacing,
-            theme=opts.theme,
+            theme=semantic_doc.theme if opts.theme == "default" else opts.theme,
             show_cover=opts.show_cover,
             page_format=opts.page_format,
             margin=opts.margin,
         )
-        html = custom_renderer.render(conversation)
+        html = custom_renderer.render_semantic_document(semantic_doc)
         pdf = await exporter.export(
             html,
             page_format=opts.page_format,
