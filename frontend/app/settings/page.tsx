@@ -240,6 +240,7 @@ export default function PaperChatSettingsPage() {
   const router = useRouter();
   const [settings, setSettings] = useState<PdfSettings>(DEFAULTS);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const [mobileTab, setMobileTab] = useState<"controls" | "preview">("controls");
 
   useEffect(() => {
     const saved = readPdfSettings();
@@ -291,21 +292,64 @@ export default function PaperChatSettingsPage() {
   };
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-zinc-950 text-zinc-100">
+    <div className="flex min-h-screen lg:h-screen w-full flex-col lg:flex-row overflow-x-hidden bg-zinc-950 text-zinc-100">
+      {/* Mobile Tab Switcher */}
+      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-zinc-800/80 bg-zinc-950/95 px-4 py-3 backdrop-blur-md lg:hidden">
+        <button
+          type="button"
+          onClick={() => router.push("/")}
+          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          <ChevronLeft className="size-4" />
+          Home
+        </button>
+        <div className="flex rounded-lg bg-zinc-900 p-1">
+          <button
+            type="button"
+            onClick={() => setMobileTab("controls")}
+            className={
+              "rounded-md px-3 py-1 text-xs font-semibold transition " +
+              (mobileTab === "controls"
+                ? "bg-zinc-800 text-white shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200")
+            }
+          >
+            Settings
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab("preview")}
+            className={
+              "rounded-md px-3 py-1 text-xs font-semibold transition " +
+              (mobileTab === "preview"
+                ? "bg-zinc-800 text-white shadow-sm"
+                : "text-zinc-400 hover:text-zinc-200")
+            }
+          >
+            Live Preview
+          </button>
+        </div>
+      </div>
+
       {/* Sidebar */}
-      <aside className="flex w-[380px] shrink-0 flex-col border-r border-zinc-800/70 bg-zinc-950">
-        <div className="px-6 pb-5 pt-7">
+      <aside
+        className={
+          "w-full lg:w-[380px] shrink-0 flex-col border-r border-zinc-800/70 bg-zinc-950 " +
+          (mobileTab === "controls" ? "flex" : "hidden lg:flex")
+        }
+      >
+        <div className="px-5 sm:px-6 pb-4 pt-5 lg:pt-7">
           <button
             type="button"
             onClick={() => router.push("/")}
-            className="mb-5 flex items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+            className="mb-4 hidden items-center gap-1 text-xs text-zinc-500 transition-colors hover:text-zinc-300 lg:flex"
           >
             <ChevronLeft className="size-3.5" />
             Back to home
           </button>
           <div className="flex items-center justify-between">
             <h1
-              className="text-xl font-semibold tracking-tight text-zinc-50"
+              className="text-lg sm:text-xl font-semibold tracking-tight text-zinc-50"
             >
               Document settings
             </h1>
@@ -482,7 +526,12 @@ export default function PaperChatSettingsPage() {
       </aside>
 
       {/* Main Preview */}
-      <main className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-10 py-10">
+      <main
+        className={
+          "relative flex-1 flex-col items-center justify-center overflow-hidden px-4 sm:px-8 lg:px-10 py-6 lg:py-10 " +
+          (mobileTab === "preview" ? "flex min-h-[80vh]" : "hidden lg:flex")
+        }
+      >
         <div
           className="absolute inset-0 opacity-[0.12]"
           style={{

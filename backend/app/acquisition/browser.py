@@ -109,13 +109,19 @@ def _wait_for_render_settle(page: Page) -> None:
     selectors = (
         "[data-message-author-role]",
         "article",
+        "user-query",
+        "model-response",
+        ".user-query",
+        ".model-response",
+        ".response-container",
+        "message-content",
         ".font-claude-message",
         ".ds-markdown",
         "[data-testid*='message']",
     )
     for selector in selectors:
         try:
-            page.wait_for_selector(selector, timeout=3_000)
+            page.wait_for_selector(selector, timeout=4_000)
             page.wait_for_timeout(300)
             return
         except PlaywrightError:
@@ -224,7 +230,7 @@ def _scroll_chat_surface(page: Page, direction: str) -> dict[str, int]:
     """Scroll the conversation surface in direction ('up', 'down', 'top', 'bottom')."""
     return page.evaluate(
         """(direction) => {
-            const messageSelector = '[data-message-author-role], article, [data-testid*="message"], .font-claude-message, .ds-markdown';
+            const messageSelector = '[data-message-author-role], user-query, model-response, .user-query, .model-response, article, [data-testid*="message"], .font-claude-message, .ds-markdown';
             const scrollables = Array.from(document.querySelectorAll('body, body *'))
                 .filter((node) => {
                     const style = window.getComputedStyle(node);
@@ -289,17 +295,15 @@ def _visible_message_snapshots(page: Page) -> list[dict[str, str]]:
     try:
         snapshots = page.evaluate(
             """() => {
-                let nodes = Array.from(document.querySelectorAll('[data-message-author-role]'));
-                if (nodes.length === 0) {
-                    nodes = Array.from(document.querySelectorAll('article, [data-testid*="message"], .font-claude-message, .ds-markdown'));
-                }
-                const topLevelNodes = nodes.filter(node => !nodes.some(other => other !== node && other.contains(node)));
+                const selector = '[data-message-author-role], user-query, model-response, .user-query, .model-response, message-content, .response-container, article, [data-testid*="message"], .font-claude-message, .ds-markdown';
+                const allNodes = Array.from(document.querySelectorAll(selector));
+                const nodes = allNodes.filter(node => !allNodes.some(other => other !== node && other.contains(node)));
 
                 return topLevelNodes
                     .map((node) => {
                         const role = node.getAttribute('data-message-author-role')
                             || node.getAttribute('data-message-role')
-                            || '';
+                            || (node.tagName.toLowerCase().includes('user') || node.className.includes('user') ? 'user' : 'assistant');
                         const id = node.getAttribute('data-message-id')
                             || node.getAttribute('data-testid')
                             || node.id

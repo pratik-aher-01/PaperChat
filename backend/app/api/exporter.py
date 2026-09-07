@@ -43,10 +43,14 @@ class GenerateOptions(BaseModel):
     clean_fluff: bool = True
 
 
+from app.parsers.raw_text import RawTextParser
+
+
 class GenerateRequest(BaseModel):
     """Request payload for one-call PDF generation."""
 
-    url: str = Field(min_length=1, max_length=2048)
+    url: str | None = Field(default=None, max_length=2048)
+    raw_text: str | None = Field(default=None, max_length=1_000_000)
     options: GenerateOptions = Field(default_factory=GenerateOptions)
 
 
@@ -107,15 +111,47 @@ async def generate_pdf(
     renderer: Annotated[HtmlRenderer, Depends(get_html_renderer)],
     exporter: Annotated[PdfExporter, Depends(get_pdf_exporter)],
 ) -> Response:
-    """Run the complete share-link to PDF pipeline using PaperChat v2 Intelligent Compiler."""
+    """Run the complete share-link or raw-text to PDF pipeline using PaperChat v2 Intelligent Compiler."""
     try:
-        conversation = await _conversation_from_url(
-            url=payload.url,
-            importer_factory=importer_factory,
-            fetcher=fetcher,
-            parser_factory=parser_factory,
-            normalizer=normalizer,
-        )
+        if payload.raw_text and payload.raw_text.strip():
+            raw_parser = RawTextParser()
+            conversation = raw_parser.parse(payload.raw_text)
+            if payload.options.clean_fluff:
+                from app.services.cleaner.content_cleaner import ContentCleaner
+                cleaner = ContentCleaner()
+                clean_messages = tuple(
+                    Message(
+                        id=m.id,
+                        role=m.role,
+                        plain_text=cleaner.clean_text(m.plain_text),
+                        content_blocks=tuple(
+                            ContentBlock(type=b.type, text=cleaner.clean_text(b.text))
+                            for b in m.content_blocks
+                        ),
+                    )
+                    for m in conversation.messages
+                )
+                conversation = Conversation(
+                    platform=conversation.platform,
+                    title=conversation.title,
+                    messages=clean_messages,
+                    metadata=conversation.metadata,
+                )
+        elif payload.url and payload.url.strip():
+            conversation = await _conversation_from_url(
+                url=payload.url.strip(),
+                importer_factory=importer_factory,
+                fetcher=fetcher,
+                parser_factory=parser_factory,
+                normalizer=normalizer,
+            )
+        else:
+            raise _structured_error(
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_input",
+                "Provide either a valid share URL or pasted conversation text.",
+            )
+
         opts = payload.options
 
         # PaperChat v2 Compilation

@@ -64,6 +64,30 @@ export default function PreviewPage() {
             link.rel = "noopener noreferrer";
             link.click();
           }}
+          onDownloadMarkdown={() => {
+            const rawStored = window.sessionStorage.getItem("paperchat:input");
+            let mdContent = `# ${document.filename.replace(/\.pdf$/i, "")}\n\nGenerated via PaperChat\n`;
+            if (rawStored) {
+              try {
+                const parsed = JSON.parse(rawStored);
+                if (parsed.rawText) {
+                  mdContent = `---\ntitle: "${document.filename.replace(/\.pdf$/i, "")}"\nsource: "PaperChat Pasted Text"\ndate: "${new Date().toISOString().split("T")[0]}"\n---\n\n${parsed.rawText}`;
+                } else if (parsed.link) {
+                  mdContent = `---\ntitle: "${document.filename.replace(/\.pdf$/i, "")}"\nsource_url: "${parsed.link}"\ndate: "${new Date().toISOString().split("T")[0]}"\n---\n\nExported conversation from ${parsed.link}\n`;
+                }
+              } catch {
+                // Keep default content
+              }
+            }
+            const blob = new Blob([mdContent], { type: "text/markdown;charset=utf-8" });
+            const mdUrl = URL.createObjectURL(blob);
+            const mdLink = window.document.createElement("a");
+            const safeBasename = document.filename.replace(/\.pdf$/i, "").replace(/[^a-zA-Z0-9_\-\.\s]/g, "") || "paperchat-document";
+            mdLink.href = mdUrl;
+            mdLink.download = `${safeBasename}.md`;
+            mdLink.click();
+            URL.revokeObjectURL(mdUrl);
+          }}
           onFullscreen={() => {
             const element = window.document.documentElement;
             if (!window.document.fullscreenElement) {

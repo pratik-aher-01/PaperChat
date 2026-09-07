@@ -29,11 +29,13 @@ class GeminiParser(BaseParser):
         "[data-role='user']",
     )
     assistant_selectors = (
+        "response-container",
+        "message-content",
+        ".response-container",
+        ".message-content",
         "model-response",
         ".model-response",
         "[data-test-id='model-response']",
-        ".response-container",
-        ".message-content",
         "[data-role='model']",
         "[data-role='assistant']",
     )
@@ -71,6 +73,8 @@ class GeminiParser(BaseParser):
 
     def _extract_messages(self, soup: BeautifulSoup) -> Iterable[Message]:
         """Extract user and model messages from Gemini DOM elements."""
+        import re
+
         collected_container = soup.select_one('[data-paperchat-collected-messages="true"]')
         search_root = collected_container if isinstance(collected_container, Tag) else soup
 
@@ -100,6 +104,11 @@ class GeminiParser(BaseParser):
             plain_text = _node_to_markdown(content_node)
             if not plain_text:
                 continue
+
+            if role == "user":
+                plain_text = re.sub(r"^You said\s*", "", plain_text).strip()
+                if not plain_text:
+                    continue
 
             message_id = _message_id(node, index)
             dedupe_key = f"{role}:{plain_text[:400]}"
@@ -156,16 +165,23 @@ def _node_offset(node: Tag) -> int:
 
 def _extract_title(soup: BeautifulSoup, fallback: str) -> str:
     """Extract page title."""
+    title = ""
     if soup.title and soup.title.string:
         clean = soup.title.string.replace("- Gemini", "").replace("Gemini -", "").strip()
         if clean:
-            return clean
-    heading = soup.select_one("h1, .conversation-title, .title")
-    if isinstance(heading, Tag):
-        text = heading.get_text(" ", strip=True)
-        if text:
-            return text
-    return fallback.strip()
+            title = clean
+    if not title:
+        heading = soup.select_one("h1, .conversation-title, .title")
+        if isinstance(heading, Tag):
+            text = heading.get_text(" ", strip=True)
+            if text:
+                title = text
+    if not title:
+        title = fallback.strip()
+
+    import re
+    cleaned_title = re.sub(r"[\u200b-\u200f\u202a-\u202e\ufeff]", "", title).strip()
+    return cleaned_title or "Gemini Conversation"
 
 
 def _message_id(node: Tag, index: int) -> str:

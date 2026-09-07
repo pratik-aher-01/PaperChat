@@ -11,6 +11,7 @@ class Platform(StrEnum):
     CLAUDE = "claude"
     GEMINI = "gemini"
     PERPLEXITY = "perplexity"
+    CUSTOM = "custom"
 
 
 class ConversationCategory(StrEnum):

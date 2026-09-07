@@ -25,25 +25,32 @@ export function useGenerate() {
       }
 
       if (input.mode === "text") {
-        setError("Paste-text generation is not connected in the MVP yet. Use a shared link.");
-        return;
-      }
+        const trimmedText = (input.rawText || "").trim();
+        if (trimmedText.length < 10) {
+          setError("Pasted text is too short. Please provide at least a couple of sentences.");
+          return;
+        }
+        if (trimmedText.length > 500_000) {
+          setError("Pasted text is too long (maximum 500,000 characters).");
+          return;
+        }
+      } else {
+        const trimmedLink = (input.link || "").trim();
+        if (!/^https?:\/\//i.test(trimmedLink)) {
+          setError("Please enter a valid URL starting with http:// or https://");
+          return;
+        }
 
-      const trimmedLink = (input.link || "").trim();
-      if (!/^https?:\/\//i.test(trimmedLink)) {
-        setError("Please enter a valid URL starting with http:// or https://");
-        return;
-      }
-
-      try {
-        const parsed = new URL(trimmedLink);
-        if (!parsed.hostname || parsed.hostname.length > 255 || trimmedLink.length > 2048) {
+        try {
+          const parsed = new URL(trimmedLink);
+          if (!parsed.hostname || parsed.hostname.length > 255 || trimmedLink.length > 2048) {
+            setError("Please enter a valid share URL.");
+            return;
+          }
+        } catch {
           setError("Please enter a valid share URL.");
           return;
         }
-      } catch {
-        setError("Please enter a valid share URL.");
-        return;
       }
 
       setIsSubmitting(true);

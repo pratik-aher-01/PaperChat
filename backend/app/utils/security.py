@@ -1,8 +1,36 @@
 """Security utilities for URL validation and SSRF protection."""
 
+from functools import lru_cache
 import ipaddress
 import socket
 from urllib.parse import urlparse
+
+
+@lru_cache(maxsize=4096)
+def is_safe_hostname(hostname: str) -> bool:
+    """Check whether a hostname resolves to non-private/public IPs (cached)."""
+    if not hostname:
+        return False
+    normalized = hostname.lower().strip(".")
+    if normalized in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
+        return False
+
+    try:
+        ip_obj = ipaddress.ip_address(normalized)
+        return not (ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local)
+    except ValueError:
+        pass
+
+    try:
+        addr_info = socket.getaddrinfo(normalized, None)
+        for item in addr_info:
+            ip_str = item[4][0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local:
+                return False
+        return True
+    except (socket.gaierror, ValueError, OSError):
+        return False
 
 
 def is_safe_url(url: str, allowed_hosts: set[str] | None = None) -> bool:
@@ -25,11 +53,7 @@ def is_safe_url(url: str, allowed_hosts: set[str] | None = None) -> bool:
 
     normalized_host = hostname.lower().strip(".")
 
-    # 2. Block direct localhost / loopback identifiers
-    if normalized_host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}:
-        return False
-
-    # 3. If allowed hosts whitelist is provided, check matching
+    # 2. Whitelist match if provided
     if allowed_hosts is not None:
         matches_allowed = any(
             normalized_host == host or normalized_host.endswith(f".{host}")
@@ -38,24 +62,6 @@ def is_safe_url(url: str, allowed_hosts: set[str] | None = None) -> bool:
         if not matches_allowed:
             return False
 
-    # 4. Resolve IP and check against private / reserved IP ranges
-    try:
-        # Check if the hostname is directly an IP address
-        try:
-            ip_obj = ipaddress.ip_address(normalized_host)
-            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local:
-                return False
-        except ValueError:
-            # It's a domain name - resolve to IP addresses
-            addr_info = socket.getaddrinfo(normalized_host, None)
-            for item in addr_info:
-                ip_str = item[4][0]
-                ip_obj = ipaddress.ip_address(ip_str)
-                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local:
-                    return False
-    except (socket.gaierror, ValueError, OSError):
-        # If domain resolution fails, fail closed if domain was not whitelisted
-        if allowed_hosts is None:
-            return False
+    # 3. Check IP safety with cached DNS lookup
+    return is_safe_hostname(normalized_host)
 
-    return True

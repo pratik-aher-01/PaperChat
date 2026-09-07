@@ -12,13 +12,11 @@ interface ApiErrorBody {
 }
 
 export async function generatePdf(input: ConversationInput): Promise<GeneratedPdf> {
-  if (input.mode !== "link") {
-    throw new Error("Paste-text generation is not supported by the MVP backend yet.");
-  }
+  const url = input.mode === "link" ? input.link?.trim() : undefined;
+  const raw_text = input.mode === "text" ? input.rawText?.trim() : undefined;
 
-  const url = input.link?.trim();
-  if (!url) {
-    throw new Error("Add a shared conversation link first.");
+  if (!url && !raw_text) {
+    throw new Error("Add a shared conversation link or paste conversation text first.");
   }
 
   const options = input.options
@@ -40,7 +38,7 @@ export async function generatePdf(input: ConversationInput): Promise<GeneratedPd
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ url, options }),
+    body: JSON.stringify({ url, raw_text, options }),
   });
 
   if (!response.ok) {
@@ -55,7 +53,18 @@ export async function generatePdf(input: ConversationInput): Promise<GeneratedPd
 }
 
 function apiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+  if (process.env.NEXT_PUBLIC_API_BASE_URL) {
+    return process.env.NEXT_PUBLIC_API_BASE_URL;
+  }
+  if (
+    typeof window !== "undefined" &&
+    window.location.hostname &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1"
+  ) {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return DEFAULT_API_BASE_URL;
 }
 
 async function errorMessage(response: Response) {

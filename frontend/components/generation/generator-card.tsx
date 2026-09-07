@@ -59,11 +59,9 @@ export function GeneratorCard() {
               key={tab.id}
               type="button"
               onClick={() => setMode(tab.id as InputMode)}
-              disabled={tab.id === "text"}
               className={cn(
-                "rounded-md px-1.5 py-1 text-zinc-500 transition hover:text-white",
-                mode === tab.id && "bg-white text-black hover:text-black",
-                tab.id === "text" && "cursor-not-allowed opacity-45 hover:text-zinc-500",
+                "rounded-md px-2 py-1 text-xs sm:text-sm text-zinc-400 transition hover:text-white",
+                mode === tab.id && "bg-white text-black font-semibold hover:text-black",
               )}
             >
               {tab.label}
@@ -74,39 +72,32 @@ export function GeneratorCard() {
         <PdfSettingsDialog settings={pdfSettings} onChange={handleSettingsChange} />
       </div>
 
-      <AnimatePresence mode="wait">
+      <div className="my-2.5">
         {mode === "link" ? (
-          <motion.input
-            key="link"
+          <input
+            key="link-input"
             type="url"
             value={link}
             onChange={(event) => setLink(event.target.value)}
-            placeholder="https://chatgpt.com/share/..."
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18 }}
-            className="h-11 w-full rounded-lg border border-white/12 bg-[#09090B] px-4 text-sm font-medium text-white outline-none placeholder:text-zinc-500 focus:border-white/35"
+            placeholder="Paste public chat link (ChatGPT, Claude, Gemini, Perplexity)..."
+            className="h-11 w-full rounded-xl border border-white/15 bg-[#09090B] px-3.5 text-sm font-medium text-white outline-none placeholder:text-zinc-500 focus:border-white/40 focus:ring-1 focus:ring-white/20 transition-all"
           />
         ) : (
-          <motion.div
-            key="text"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.18 }}
-          >
-            <Textarea
-              value={rawText}
-              onChange={(event) => setRawText(event.target.value)}
-              placeholder="Paste the full conversation text here..."
-              className="min-h-24 resize-none rounded-lg border-white/12 bg-[#09090B] px-4 py-3 text-sm font-medium text-white outline-none placeholder:text-zinc-500 focus-visible:border-white/35 focus-visible:ring-white/10"
-            />
-          </motion.div>
+          <Textarea
+            key="text-input"
+            value={rawText}
+            onChange={(event) => setRawText(event.target.value)}
+            placeholder="Paste raw conversation transcript here (User: ... Assistant: ...)..."
+            className="min-h-28 resize-none rounded-xl border border-white/15 bg-[#09090B] px-3.5 py-3 text-sm font-medium text-white outline-none placeholder:text-zinc-500 focus-visible:border-white/40 focus-visible:ring-1 focus-visible:ring-white/20 transition-all"
+          />
         )}
-      </AnimatePresence>
+      </div>
 
-      {error && <p className="mt-2 text-xs font-medium text-zinc-300">{error}</p>}
+      {error && (
+        <p className="mb-2 text-xs font-medium text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-lg">
+          {error}
+        </p>
+      )}
 
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
