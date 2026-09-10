@@ -13,6 +13,7 @@ from app.acquisition.concurrency import acquire_browser_slot, release_browser_sl
 from app.domain.fetch_result import FetchResult
 from app.utils.security import is_safe_url
 from exceptions import AcquisitionException
+from settings import settings
 
 
 class BrowserFetcher(BaseFetcher):
@@ -29,7 +30,7 @@ class BrowserFetcher(BaseFetcher):
     def _fetch_sync(self, url: str) -> FetchResult:
         """Fetch fully rendered HTML in a worker thread."""
         if not is_safe_url(url):
-            raise AcquisitionException(f"Blocked unsafe or invalid URL: {url}")
+            raise AcquisitionException("Blocked unsafe or invalid URL.")
 
         if not acquire_browser_slot(timeout=45.0):
             raise AcquisitionException("Server is experiencing high render load. Please retry in a few moments.")
@@ -43,6 +44,7 @@ class BrowserFetcher(BaseFetcher):
                 )
                 try:
                     page = browser.new_page()
+                    page.set_default_timeout(self._timeout_ms)
                     _setup_security_routes(page)
                     response = page.goto(
                         url,
@@ -54,7 +56,12 @@ class BrowserFetcher(BaseFetcher):
 
                     title = _retry_page_read(page.title)
                     html = _retry_page_read(page.content)
+                    if len(html.encode("utf-8", errors="ignore")) > settings.max_acquisition_bytes:
+                        raise AcquisitionException("Rendered document is too large.")
                     html = _append_collected_messages(html, collected_messages)
+                    if len(html.encode("utf-8", errors="ignore")) > settings.max_acquisition_bytes:
+                        raise AcquisitionException("Rendered document is too large.")
+
                     fetch_time_ms = _elapsed_ms(started_at)
                     status = response.status if response is not None else None
 
@@ -72,14 +79,16 @@ class BrowserFetcher(BaseFetcher):
                     )
                 finally:
                     browser.close()
+        except AcquisitionException:
+            raise
         except PlaywrightError as exc:
-            raise AcquisitionException(f"Browser acquisition failed: {exc}") from exc
+            raise AcquisitionException("Browser acquisition failed.") from exc
         finally:
             release_browser_slot()
 
 
 def _setup_security_routes(page: Page) -> None:
-    """Intercept all sub-resource requests and abort unsafe or private IP destinations."""
+    """Intercept all sub-resource requests and abort unsafe or private destinations."""
     def _route_handler(route: Any) -> None:
         try:
             req_url = route.request.url
@@ -131,18 +140,15 @@ def _wait_for_render_settle(page: Page) -> None:
 
 def _collect_lazy_rendered_messages(page: Page) -> list[str]:
     """Scroll through SPA content and preserve virtualized message nodes across the full page."""
-    # Step 1: Scroll to the very top to trigger loading of top lazy-rendered content
     _scroll_to_top(page)
 
     seen: set[str] = set()
     messages: list[str] = []
 
-    # Step 2: Collect visible messages at the top after scrolling to top
     for msg in _visible_message_snapshots(page):
         seen.add(msg["key"])
         messages.append(msg["html"])
 
-    # Step 3: Step down through the entire chat surface to collect all virtualized messages
     _walk_chat_surface_down(page, seen=seen, messages=messages)
 
     return messages
@@ -185,7 +191,6 @@ def _walk_chat_surface_down(
     last_extent = -1
 
     for _ in range(250):
-        # Collect visible messages at current scroll position
         for message in _visible_message_snapshots(page):
             key = message["key"]
             if key in seen:
@@ -218,7 +223,6 @@ def _walk_chat_surface_down(
         last_position = position
         last_extent = extent
 
-    # Final collection at bottom
     for message in _visible_message_snapshots(page):
         key = message["key"]
         if key not in seen:
@@ -230,7 +234,7 @@ def _scroll_chat_surface(page: Page, direction: str) -> dict[str, int]:
     """Scroll the conversation surface in direction ('up', 'down', 'top', 'bottom')."""
     return page.evaluate(
         """(direction) => {
-            const messageSelector = '[data-message-author-role], user-query, model-response, .user-query, .model-response, article, [data-testid*="message"], .font-claude-message, .ds-markdown';
+            const messageSelector = '[data-message-author-role], user-query, model-response, .user-query, .model-response, article, [data-testid*=\"message\"], .font-claude-message, .ds-markdown';
             const scrollables = Array.from(document.querySelectorAll('body, body *'))
                 .filter((node) => {
                     const style = window.getComputedStyle(node);
@@ -295,15 +299,15 @@ def _visible_message_snapshots(page: Page) -> list[dict[str, str]]:
     try:
         snapshots = page.evaluate(
             """() => {
-                const selector = '[data-message-author-role], user-query, model-response, .user-query, .model-response, message-content, .response-container, article, [data-testid*="message"], .font-claude-message, .ds-markdown';
+                const selector = '[data-message-author-role], user-query, model-response, .user-query, .model-response, message-content, .response-container, article, [data-testid*=\"message\"], .font-claude-message, .ds-markdown';
                 const allNodes = Array.from(document.querySelectorAll(selector));
-                const nodes = allNodes.filter(node => !allNodes.some(other => other !== node && other.contains(node)));
+                const topLevelNodes = allNodes.filter(node => !allNodes.some(other => other !== node && other.contains(node)));
 
                 return topLevelNodes
                     .map((node) => {
                         const role = node.getAttribute('data-message-author-role')
                             || node.getAttribute('data-message-role')
-                            || (node.tagName.toLowerCase().includes('user') || node.className.includes('user') ? 'user' : 'assistant');
+                            || (node.tagName.toLowerCase().includes('user') || String(node.className).includes('user') ? 'user' : 'assistant');
                         const id = node.getAttribute('data-message-id')
                             || node.getAttribute('data-testid')
                             || node.id
