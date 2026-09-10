@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default=DEFAULT_LOG_LEVEL, alias="LOG_LEVEL")
     cors_origins: str | tuple[str, ...] = Field(default=DEFAULT_CORS_ORIGINS, alias="CORS_ORIGINS")
     trusted_proxy_ips: str | tuple[str, ...] = Field(default=(), alias="TRUSTED_PROXY_IPS")
+    max_acquisition_bytes: int = Field(default=10 * 1024 * 1024, alias="MAX_ACQUISITION_BYTES")
     document_layout: str = Field(default=DEFAULT_DOCUMENT_LAYOUT, alias="DOCUMENT_LAYOUT")
     pdf_engine: str = Field(default=DEFAULT_PDF_ENGINE, alias="PDF_ENGINE")
 
@@ -51,6 +52,13 @@ class Settings(BaseSettings):
             if item:
                 networks.append(ipaddress.ip_network(item, strict=False))
         return tuple(networks)
+
+    @field_validator("max_acquisition_bytes")
+    @classmethod
+    def validate_max_acquisition_bytes(cls, value: int) -> int:
+        if value < 1_024 or value > 100 * 1024 * 1024:
+            raise ValueError("MAX_ACQUISITION_BYTES must be between 1 KiB and 100 MiB")
+        return value
 
     @field_validator("debug", mode="before")
     @classmethod
