@@ -1,40 +1,40 @@
-"""In-memory sliding window rate limiter for FastAPI routes."""
+"""IP-based rate limiting with explicit trusted-proxy handling."""
 
+import ipaddress
+import threading
 import time
 from collections import defaultdict
-import threading
 from typing import Callable
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from settings import settings
+
 
 class SlidingWindowRateLimiter:
-    """Thread-safe in-memory sliding window rate limiter."""
+    """Thread-safe in-memory sliding-window rate limiter.
+
+    This is suitable for a single backend instance. For horizontally scaled
+    production deployments, use a shared store such as Redis.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        # map: ip -> list of timestamps
         self._history: dict[str, list[float]] = defaultdict(list)
-        # Clean up stale IP records every 5 minutes
         self._last_cleanup = time.time()
 
     def is_allowed(self, client_ip: str, limit: int, window_seconds: int = 60) -> tuple[bool, int]:
-        """Check if request is allowed under sliding window limit.
-
-        Returns (allowed: bool, retry_after_seconds: int).
-        """
         now = time.time()
         window_start = now - window_seconds
 
         with self._lock:
-            # Periodic cleanup of expired records
             if now - self._last_cleanup > 300:
                 self._cleanup_stale(window_start)
                 self._last_cleanup = now
 
             timestamps = self._history[client_ip]
-            # Prune timestamps outside window
             valid_timestamps = [ts for ts in timestamps if ts > window_start]
             self._history[client_ip] = valid_timestamps
 
@@ -47,7 +47,6 @@ class SlidingWindowRateLimiter:
             return True, 0
 
     def _cleanup_stale(self, threshold: float) -> None:
-        """Remove empty or outdated IP entries."""
         stale_keys = [
             ip for ip, timestamps in self._history.items()
             if not timestamps or timestamps[-1] <= threshold
@@ -56,26 +55,19 @@ class SlidingWindowRateLimiter:
             del self._history[ip]
 
 
-# Singleton instance
 rate_limiter = SlidingWindowRateLimiter()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """FastAPI middleware applying sliding-window rate limits per client IP."""
+    """Apply per-client rate limits without trusting spoofable proxy headers."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Exclude static assets and health check
         path = request.url.path
         if path.startswith("/static") or path in {"/health", "/docs", "/openapi.json"}:
             return await call_next(request)
 
         client_ip = _extract_client_ip(request)
-
-        # Apply tighter limit on heavy endpoints
-        if path in {"/api/generate", "/api/export/pdf", "/api/import/fetch"}:
-            limit = 15  # 15 heavy generation requests per minute
-        else:
-            limit = 60  # 60 general API requests per minute
+        limit = 15 if path in {"/api/generate", "/api/export/pdf", "/api/import/fetch"} else 60
 
         allowed, retry_after = rate_limiter.is_allowed(client_ip, limit=limit, window_seconds=60)
         if not allowed:
@@ -92,22 +84,34 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 
 def _extract_client_ip(request: Request) -> str:
-    """Safely extract client IP taking proxy headers into account."""
-    # Check Cloudflare IP header
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip and cf_ip.strip():
-        return cf_ip.strip()
+    """Return the real client IP only when the immediate peer is trusted.
 
-    # Check X-Real-IP header
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
+    By default proxy headers are ignored. Configure TRUSTED_PROXY_IPS with
+    trusted proxy/load-balancer CIDRs when deploying behind one.
+    """
+    peer = request.client.host if request.client else "unknown"
+    if not _is_trusted_proxy(peer):
+        return peer
 
-    # Check X-Forwarded-For header (left-most client IP)
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for and forwarded_for.strip():
-        client_part = forwarded_for.split(",")[0].strip()
-        if client_part:
-            return client_part
+    # Only a trusted proxy may supply these headers.
+    for header in ("cf-connecting-ip", "x-real-ip", "x-forwarded-for"):
+        value = request.headers.get(header, "")
+        if not value.strip():
+            continue
+        candidate = value.split(",")[0].strip()
+        try:
+            return str(ipaddress.ip_address(candidate))
+        except ValueError:
+            continue
 
-    return request.client.host if request.client else "unknown"
+    return peer
+
+
+def _is_trusted_proxy(peer: str) -> bool:
+    if not settings.trusted_proxy_ips:
+        return False
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(peer_ip in network for network in settings.trusted_proxy_ips)
